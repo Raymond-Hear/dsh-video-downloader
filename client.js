@@ -798,7 +798,7 @@ window.__ModuleLoader__.load({
             installBar,
             noticeBar,
             h('div', { className: 'ytdlp-grid' },
-              h('div', { className: 'ytdlp-col' }, composer, previewCard, sitesCard),
+              h('div', { className: 'ytdlp-col' }, composer, sitesCard, previewCard),
               h('div', { className: 'ytdlp-col' }, queueHead, rows),
             ),
           ),
