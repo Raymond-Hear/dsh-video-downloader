@@ -15,7 +15,7 @@ window.__ModuleLoader__.load({
 
     const PANEL = 'video-downloader'
     const BASE = '/ytdlp'
-    const COOKIE_HELP = '在已登录的目标站点页面，用扩展 Get cookies.txt LOCALLY 点 Export。传一次长期生效，换账号重传即可。只有 YouTube、Instagram 这类要登录的站点才用得上，B站 / X / TikTok 通常直接贴链接就行。'
+    const COOKIE_HELP = '登录后才有的内容才需要它。导出一次，长期有效。'
 
     const QUALITIES = [
       ['best', '最佳画质'],
@@ -178,9 +178,12 @@ window.__ModuleLoader__.load({
 .ytdlp-col::-webkit-scrollbar { width: 8px; }
 .ytdlp-col::-webkit-scrollbar-thumb { background: var(--dsw-alias-border-l1); border-radius: 4px; }
 .ytdlp-section { font-size: 12px; font-weight: 600; letter-spacing: .2px; }
+.ytdlp-label { font-size: 10.5px; letter-spacing: .09em; color: var(--dsw-alias-label-secondary); text-transform: uppercase; }
+.ytdlp-divider { height: 1px; background: var(--dsw-alias-border-l1); margin: 12px 0 10px; }
+.ytdlp-note { margin-top: 8px; font-size: 11.5px; line-height: 1.7; color: var(--dsw-alias-label-secondary); }
 .ytdlp-count { font-size: 11px; color: var(--dsw-alias-label-secondary); }
 .ytdlp-queue-head { display: flex; align-items: center; gap: 8px; flex: none; padding: 0 2px; }
-.ytdlp-card { background: var(--dsw-alias-bg-layer-1); border: 1px solid var(--dsw-alias-border-l1); border-radius: 12px; padding: 12px; }
+.ytdlp-card { background: var(--dsw-alias-bg-layer-1); border: 1px solid var(--dsw-alias-border-l1); border-radius: 12px; padding: 14px 16px; }
 .ytdlp-input { width: 100%; box-sizing: border-box; resize: vertical; min-height: 70px; padding: 10px 12px; border-radius: 9px; border: 1px solid var(--dsw-alias-border-l1); background: var(--dsw-alias-bg-layer-2); color: var(--dsw-alias-label-primary); font: inherit; line-height: 1.55; outline: none; }
 .ytdlp-input:focus { border-color: var(--dsw-alias-brand-primary); }
 .ytdlp-input::placeholder { color: var(--dsw-alias-label-secondary); }
@@ -282,6 +285,7 @@ window.__ModuleLoader__.load({
         const [cookieCheck, setCookieCheck] = React.useState(null)
         const [guide, setGuide] = React.useState(null)
         const [guideBig, setGuideBig] = React.useState(false)
+        const guideTimer = React.useRef(null)
         const [advanced, setAdvanced] = React.useState(false)
         const fileInput = React.useRef(null)
         const seeded = React.useRef(false)
@@ -459,6 +463,23 @@ window.__ModuleLoader__.load({
           try { setCookieCheck(await api('/api/cookies/check', { path })) } catch (err) { setCookieCheck({ level: 'error', message: String(err.message || err) }) }
         }
 
+        // 悬停预览：延迟隐藏 + 弹在按钮上方，鼠标移过去不会抖
+        function showGuide(e) {
+          if (guideTimer.current) { clearTimeout(guideTimer.current); guideTimer.current = null }
+          const rect = e.currentTarget.getBoundingClientRect()
+          const width = 520
+          const height = Math.round(width * 941 / 1672)
+          const left = Math.min(Math.max(12, rect.left), Math.max(12, window.innerWidth - width - 12))
+          let top = rect.top - height - 10
+          if (top < 12) top = Math.min(rect.bottom + 10, window.innerHeight - height - 12)
+          setGuide({ left, top, width })
+        }
+
+        function hideGuide() {
+          if (guideTimer.current) clearTimeout(guideTimer.current)
+          guideTimer.current = setTimeout(() => setGuide(null), 260)
+        }
+
         // 试看：向 Host 要一个临时直链，塞进 <video>
         async function loadPreview() {
           if (!preview || video && video.loading) return
@@ -523,7 +544,7 @@ window.__ModuleLoader__.load({
           }, h(GithubIcon)),
           h('button', { className: 'ytdlp-btn ghost', onClick: recheck, title: '重新检测本机命令' }, '重新检测'))
 
-        const modeRow = h('div', { className: 'ytdlp-row' },
+        const modeRow = h('div', { className: 'ytdlp-row no-gap' },
           h('div', { className: 'ytdlp-seg' }, MODES.map(([value, label]) =>
             h('button', { key: value, className: opts.mode === value ? 'on' : '', onClick: () => patch({ mode: value }) }, label))),
           opts.mode === 'video'
@@ -544,7 +565,7 @@ window.__ModuleLoader__.load({
           h('button', { className: 'ytdlp-btn ghost', onClick: () => setAdvanced(!advanced) }, advanced ? '高级 ▴' : '高级 ▾'),
         )
 
-        const cookieRow = h('div', { className: 'ytdlp-row' },
+        const cookieRow = h('div', { className: 'ytdlp-row no-gap' },
           h('label', { className: 'ytdlp-check', title: '会员 / 年龄限制 / 反机器人验证需要登录 Cookie' }, 'Cookies'),
           h('select', {
             className: 'ytdlp-select', value: opts.cookies,
@@ -573,21 +594,14 @@ window.__ModuleLoader__.load({
           }),
         )
 
-        const cookieNote = h('div', { className: 'ytdlp-meta', style: { marginTop: '8px' } },
-          COOKIE_HELP, ' ',
+        const cookieNote = h('div', { className: 'ytdlp-note' },
+          COOKIE_HELP,
           h('button', {
             className: 'ytdlp-linkbtn',
-            onMouseEnter: (e) => {
-              const rect = e.currentTarget.getBoundingClientRect()
-              const width = 560
-              const left = Math.min(Math.max(12, rect.left + rect.width - width), window.innerWidth - width - 12)
-              // 与按钮重叠几像素，鼠标从链接移到预览上时不会因为缝隙而消失
-              const top = Math.min(rect.bottom - 6, window.innerHeight - 360)
-              setGuide({ left, top })
-            },
-            onMouseLeave: () => setGuide(null),
-            onClick: () => { setGuide(null); setGuideBig(true) },
-          }, '怎么导出？看这张图'),
+            onMouseEnter: showGuide,
+            onMouseLeave: hideGuide,
+            onClick: () => { hideGuide(); setGuideBig(true) },
+          }, '导出步骤 →'),
         )
 
         const advancedRow = advanced
@@ -653,9 +667,10 @@ window.__ModuleLoader__.load({
             }
           },
         },
+          h('div', { className: 'ytdlp-label' }, '链接'),
           h('textarea', {
             className: 'ytdlp-input',
-            placeholder: '粘贴链接，一行一个（YouTube / 哔哩哔哩 / X / TikTok…）；Ctrl+Enter 直接下载，Enter 解析。链接和 cookies.txt 都能拖进来。',
+            placeholder: '粘贴链接，一行一个。Enter 解析，Ctrl+Enter 直接下载。',
             value: url,
             spellCheck: false,
             onChange: (e) => setUrl(e.target.value),
@@ -664,14 +679,19 @@ window.__ModuleLoader__.load({
               else if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); doProbe() }
             },
           }),
+          h('div', { className: 'ytdlp-divider' }),
+          h('div', { className: 'ytdlp-label' }, '格式'),
           modeRow,
+          h('div', { className: 'ytdlp-divider' }),
+          h('div', { className: 'ytdlp-label' }, 'Cookies'),
           cookieRow,
-          cookieCheck
-            ? h('div', { className: `ytdlp-alert ${cookieCheck.level || (cookieCheck.ok ? 'ok' : 'error')}`, style: { marginTop: '10px' } }, cookieCheck.message)
-            : null,
           cookieNote,
+          cookieCheck
+            ? h('div', { className: `ytdlp-alert ${cookieCheck.level || (cookieCheck.ok ? 'ok' : 'error')}`, style: { marginTop: '8px' } }, cookieCheck.message)
+            : null,
           advancedRow,
-          h('div', { className: 'ytdlp-row' },
+          h('div', { className: 'ytdlp-divider' }),
+          h('div', { className: 'ytdlp-row no-gap' },
             h('button', { className: 'ytdlp-btn ghost', onClick: readClipboard, title: '把剪贴板里的链接读进来' }, '读剪贴板'),
             h('div', { className: 'ytdlp-spacer' }),
             h('button', { className: 'ytdlp-btn', onClick: doProbe, disabled: busy !== '' || !toolOk }, busy === 'probe' ? '解析中…' : '解析'),
@@ -779,7 +799,7 @@ window.__ModuleLoader__.load({
           h('div', { className: 'ytdlp-sites-head' }, '支持站点',
             h('em', null, '由 ',
               h('a', { href: 'https://github.com/yt-dlp/yt-dlp', target: '_blank', rel: 'noreferrer' }, 'yt-dlp'),
-              ' 驱动，覆盖上千个站点')),
+              ' 驱动 · 上千个站点')),
           SITES.map((section) => h('div', { className: 'ytdlp-sites-row', key: section.group },
             h('span', { className: 'ytdlp-sites-label' }, section.group),
             h('div', { className: 'ytdlp-sites-chips' }, section.items.map(([name, color, fg, mark, login]) =>
@@ -787,7 +807,7 @@ window.__ModuleLoader__.load({
                 h('i', { className: 'ytdlp-site-mark', style: { background: color, color: fg } }, mark),
                 name,
                 login ? h('span', { style: { fontSize: '7px', color: 'var(--dsw-alias-state-warn-primary)', lineHeight: 1 } }, '●') : null))))),
-          h('div', { className: 'ytdlp-sites-note' }, '名字后面带小黄点的通常要先配 cookies.txt（X、Instagram、小红书这类）；其余直接贴链接就能下。'),
+          h('div', { className: 'ytdlp-sites-note' }, '带黄点的一般要先配 cookies.txt，其余直接贴链接。'),
         )
 
         const queueHead = h('div', { className: 'ytdlp-queue-head' },
@@ -833,11 +853,14 @@ window.__ModuleLoader__.load({
           guide
             ? h('div', {
               className: 'ytdlp-guide-pop',
-              style: { left: `${guide.left}px`, top: `${guide.top}px` },
-              onMouseLeave: () => setGuide(null),
+              style: { left: `${guide.left}px`, top: `${guide.top}px`, width: `${guide.width}px` },
+              onMouseEnter: () => {
+                if (guideTimer.current) { clearTimeout(guideTimer.current); guideTimer.current = null }
+              },
+              onMouseLeave: hideGuide,
             },
               h('img', { src: `${BASE}/assets/cookies-guide.webp`, alt: 'cookies 导出四步图' }),
-              h('div', { className: 'ytdlp-guide-hint' }, '点图片看大图'))
+              h('div', { className: 'ytdlp-guide-hint' }, '点一下看大图'))
             : null,
           guideBig
             ? h('div', { className: 'ytdlp-modal', onClick: () => setGuideBig(false) },
