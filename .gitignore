@@ -1,0 +1,16 @@
+# 依赖
+node_modules/
+
+# 本地隐私：千万别提交
+cookies.txt
+*cookies*.txt
+state.json
+.env
+.env.*
+*.key
+*.pem
+
+# 杂项
+*.log
+.DS_Store
+Thumbs.db

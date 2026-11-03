@@ -1,0 +1,50 @@
+{
+  "name": "dsh-video-downloader",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "DeepSeek Harness 视频下载器：贴一个链接（YouTube / 哔哩哔哩 / X / TikTok 等上千个站点），用本机 yt-dlp 下载视频、音频、字幕或封面。",
+  "license": "MIT",
+  "author": "Raymond-Hear",
+  "homepage": "https://github.com/Raymond-Hear/dsh-video-downloader",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Raymond-Hear/dsh-video-downloader.git"
+  },
+  "keywords": [
+    "dsh-plugin",
+    "deepseek-harness",
+    "dsh",
+    "yt-dlp",
+    "video-downloader",
+    "youtube",
+    "bilibili"
+  ],
+  "exports": {
+    ".": "./index.js",
+    "./client": "./client.js",
+    "./locale/*.json": "./locale/*.json",
+    "./icon": "./icon.svg",
+    "./cordis.patch.yml": "./cordis.patch.yml",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "index.js",
+    "client.js",
+    "cordis.patch.yml",
+    "locale/*.json",
+    "icon.svg",
+    "README.md",
+    "LICENSE"
+  ],
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web",
+      "immediately": true,
+      "inject": []
+    }
+  }
+}

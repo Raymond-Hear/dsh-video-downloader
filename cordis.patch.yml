@@ -1,0 +1,6 @@
+# 视频下载器：Host 半边负责调用本机 yt-dlp 并把进度通过
+# /ytdlp/api/* 暴露给页面；浏览器半边是 package.json 里的 dsh.client。
+- insert:
+    - id: video-downloader
+      name: dsh-video-downloader
+      config: {}
