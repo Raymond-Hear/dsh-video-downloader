@@ -581,7 +581,8 @@ window.__ModuleLoader__.load({
               const rect = e.currentTarget.getBoundingClientRect()
               const width = 560
               const left = Math.min(Math.max(12, rect.left + rect.width - width), window.innerWidth - width - 12)
-              const top = Math.min(rect.bottom + 8, window.innerHeight - 360)
+              // 与按钮重叠几像素，鼠标从链接移到预览上时不会因为缝隙而消失
+              const top = Math.min(rect.bottom - 6, window.innerHeight - 360)
               setGuide({ left, top })
             },
             onMouseLeave: () => setGuide(null),
