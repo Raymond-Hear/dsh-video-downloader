@@ -10,7 +10,7 @@
 //   /ytdlp/api/cookies/* 检查、上传、清除 cookies.txt
 //   /ytdlp/api/open      在资源管理器里打开保存目录 / 定位文件
 import { spawn, spawnSync } from 'node:child_process'
-import { createReadStream, createWriteStream, existsSync, mkdirSync, readFileSync, renameSync, statSync, writeFileSync } from 'node:fs'
+import { createReadStream, createWriteStream, existsSync, mkdirSync, readFileSync, readdirSync, renameSync, statSync, unlinkSync, writeFileSync } from 'node:fs'
 import { get as httpsGet } from 'node:https'
 import { basename, dirname, extname, join } from 'node:path'
 import { homedir } from 'node:os'
@@ -153,7 +153,6 @@ function requireTool() {
 }
 
 /* ------------------------------------------------------------- tool install */
-
 // 官方单文件版（不需要 Python），装到插件自己的 bin 目录里
 const DOWNLOAD_URL = 'https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp.exe'
 
@@ -203,6 +202,31 @@ async function installTool() {
     }
     return { ok: false, method: 'none', message: `自动安装失败：${downloadError.message}。本机也没有 Python，请手动下载 yt-dlp.exe 放到 ${BIN_DIR}，或安装 Python 后执行 pip install -U yt-dlp` }
   }
+}
+
+/* ---------------------------------------------------------- subtitle tidy-up */
+
+// 勾了「内嵌字幕」时，yt-dlp 会顺手在同目录写下 .vtt/.srt 等字幕文件。
+// 字幕已经进到 mp4 里了，这些散落的小文件只会让人误以为"下错了"，这里清掉。
+function cleanupSidecarSubs(file, since) {
+  if (!file) return 0
+  const dir = dirname(file)
+  const base = basename(file).replace(/\.[^.]+$/, '')
+  let removed = 0
+  try {
+    for (const name of readdirSync(dir)) {
+      if (!name.startsWith(base + '.')) continue
+      if (!/\.(vtt|srt|ass|ssa|lrc|json3)$/i.test(name)) continue
+      const target = join(dir, name)
+      try {
+        if (statSync(target).mtimeMs >= since) {
+          unlinkSync(target)
+          removed += 1
+        }
+      } catch {}
+    }
+  } catch {}
+  return removed
 }
 
 /* -------------------------------------------------------------------- jobs */
@@ -401,6 +425,7 @@ function runJob(job) {
       return resolve()
     }
     job.status = 'downloading'
+    job.startedAt = Date.now()
     job.child = child
     let buffer = ''
     let errors = ''
@@ -468,6 +493,11 @@ function runJob(job) {
       if (job.mode === 'thumb' && job.file) {
         const converted = job.file.replace(/\.[^.\\/]+$/, '.jpg')
         if (converted !== job.file && existsSync(converted)) job.file = converted
+      }
+      // 字幕已经内嵌进视频，把旁边散落的 .vtt/.srt 收掉
+      if (job.status === 'done' && job.subtitles && job.file) {
+        const removed = cleanupSidecarSubs(job.file, job.startedAt || 0)
+        if (removed > 0) job.note = `已内嵌字幕，清掉 ${removed} 个字幕散文件`
       }
       job.finishedAt = new Date().toISOString()
       remember(job)
@@ -750,24 +780,26 @@ function cancelJob(id) {
   return false
 }
 
-// 打开资源管理器。注意 Windows 的 /select, 必须和路径拼成【同一个】参数，
-// 拆成两个参数时 explorer 会忽略路径，表现就是"点了没反应"。
+// 打开资源管理器。Windows 这边必须走 shell 拼命令行：
+// explorer 只认 `/select,"带空格的路径"` 这种形态，用 spawn 传参数数组时
+// 引号位置不对，explorer 会退回「文档」，表现就是"点了打开的是文档文件夹"。
 function launchExplorer(target, reveal) {
+  const clean = String(target).replace(/"/g, '')
   try {
     if (process.platform === 'win32') {
-      const args = reveal ? [`/select,${target}`] : [target]
-      const child = spawn('explorer.exe', args, { detached: true, stdio: 'ignore' })
+      const command = reveal ? `explorer.exe /select,"${clean}"` : `explorer.exe "${clean}"`
+      const child = spawn(command, { shell: true, detached: true, stdio: 'ignore' })
       child.on('error', () => {})
       child.unref()
       return true
     }
     if (process.platform === 'darwin') {
-      const child = spawn('open', reveal ? ['-R', target] : [target], { detached: true, stdio: 'ignore' })
+      const child = spawn('open', reveal ? ['-R', clean] : [clean], { detached: true, stdio: 'ignore' })
       child.on('error', () => {})
       child.unref()
       return true
     }
-    const child = spawn('xdg-open', [reveal ? dirname(target) : target], { detached: true, stdio: 'ignore' })
+    const child = spawn('xdg-open', [reveal ? dirname(clean) : clean], { detached: true, stdio: 'ignore' })
     child.on('error', () => {})
     child.unref()
     return true

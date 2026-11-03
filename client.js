@@ -290,6 +290,7 @@ window.__ModuleLoader__.load({
         const guideTimer = React.useRef(null)
         const [advanced, setAdvanced] = React.useState(false)
         const fileInput = React.useRef(null)
+        const previewRef = React.useRef(null)
         const seeded = React.useRef(false)
 
         const refreshEnv = React.useCallback(async () => {
@@ -334,6 +335,12 @@ window.__ModuleLoader__.load({
           const timer = setInterval(tick, 1000)
           return () => { alive = false; clearInterval(timer) }
         }, [])
+
+        React.useEffect(() => {
+          if (preview && previewRef.current) {
+            try { previewRef.current.scrollIntoView({ block: 'nearest', behavior: 'smooth' }) } catch {}
+          }
+        }, [preview])
 
         const patch = (next) => setOpts((prev) => ({ ...prev, ...next }))
 
@@ -702,7 +709,7 @@ window.__ModuleLoader__.load({
         )
 
         const previewCard = preview
-          ? h('div', { className: 'ytdlp-card ytdlp-preview' },
+          ? h('div', { className: 'ytdlp-card ytdlp-preview', ref: previewRef },
             h('div', { className: 'ytdlp-media' },
               video && video.url
                 ? h('video', {
@@ -851,7 +858,7 @@ window.__ModuleLoader__.load({
             installBar,
             noticeBar,
             h('div', { className: 'ytdlp-grid' },
-              h('div', { className: 'ytdlp-col' }, composer, sitesCard, previewCard),
+              h('div', { className: 'ytdlp-col' }, composer, previewCard, sitesCard),
               h('div', { className: 'ytdlp-col' }, queueHead, rows),
             ),
           ),
