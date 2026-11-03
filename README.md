@@ -30,6 +30,17 @@
 
 需要登录的站点（X、Instagram、小红书、会员视频等）要先配 cookies.txt：用浏览器扩展 **Get cookies.txt LOCALLY** 在目标站点导出，然后在面板点「上传 cookies.txt」。B站、TikTok 这类通常直接贴链接就行。
 
+## 致谢：基于 yt-dlp
+
+本插件是 [yt-dlp](https://github.com/yt-dlp/yt-dlp) 的图形前端——真正解析、下载、合并的工作全部由它完成，这里只负责界面、队列和参数组装。
+
+**授权情况**：yt-dlp 使用 [Unlicense](https://github.com/yt-dlp/yt-dlp/blob/master/LICENSE)（公有领域）。该协议不要求署名、不要求衍生作品同协议开源，也没有任何"必须展示 logo"的条款，所以本项目在法律上不需要为它做任何事。这里仍然明确写出来，是因为：
+
+- 用户应该知道下载能力来自 yt-dlp，遇到站点解析问题去它的仓库反馈更有效；
+- 它背后的 youtube-dl 社区和贡献者值得这一句署名。
+
+**唯一要注意的**：别用 "yt-dlp 官方"、"official" 之类的说法暗示隶属关系——这是商标/署名礼仪问题，不是协议要求。本项目在 `package.json` 和 README 里都只写"基于 / powered by"。
+
 ## 安装
 
 仓库：<https://github.com/Raymond-Hear/dsh-video-downloader>
