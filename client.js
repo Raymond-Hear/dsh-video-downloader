@@ -15,7 +15,7 @@ window.__ModuleLoader__.load({
 
     const PANEL = 'video-downloader'
     const BASE = '/ytdlp'
-    const COOKIE_HELP = '需要登录的内容才用得上。'
+    const COOKIE_HELP = '遇到「需要登录」「确认你不是机器人」这类提示时，再来配。'
 
     const QUALITIES = [
       ['best', '最佳画质'],
@@ -813,7 +813,7 @@ window.__ModuleLoader__.load({
                   onError: (e) => { e.currentTarget.style.visibility = 'hidden' },
                 }),
                 name))))),
-          h('div', { className: 'ytdlp-sites-note' }, '公开内容直接贴链接就能下。会员、年龄限制、地区限制，或偶尔的风控提示要登录时，再配 cookies.txt。'),
+          h('div', { className: 'ytdlp-sites-note' }, '公开内容直接贴链接就能下；遇到要登录的提示，配 cookies.txt 即可。'),
         )
 
         const queueHead = h('div', { className: 'ytdlp-queue-head' },
