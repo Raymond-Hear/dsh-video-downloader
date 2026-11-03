@@ -3,7 +3,7 @@
   "version": "1.0.0",
   "private": true,
   "type": "module",
-  "description": "DeepSeek Harness 视频下载器：贴一个链接（YouTube / 哔哩哔哩 / X / TikTok 等上千个站点），用本机 yt-dlp 下载视频、音频、字幕或封面。",
+  "description": "一个帮你高效下载各平台视频的 DeepSeek Harness 插件。贴一个链接，用本机 yt-dlp 下载视频 / 音频 / 字幕 / 封面 —— 支持 YouTube、哔哩哔哩、X、TikTok 等上千个站点。",
   "license": "MIT",
   "author": "Raymond-Hear",
   "homepage": "https://github.com/Raymond-Hear/dsh-video-downloader",
