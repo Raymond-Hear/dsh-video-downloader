@@ -31,20 +31,25 @@
 
 ## 安装
 
-### 自己用
+仓库：<https://github.com/Raymond-Hear/dsh-video-downloader>
+
+### 方式一：下载源码，用插件管理器装（推荐）
 
 ```bash
-# 把这个目录放到任意位置，然后
-dsh --profile <你的 profile>   # 在 Harness 里用插件管理器安装本地目录
+git clone https://github.com/Raymond-Hear/dsh-video-downloader.git
 ```
 
-或者让 Harness 的 Agent 执行 `plugin_manager install_bundle`，target 填这个目录的绝对路径。
+然后在 DeepSeek Harness 里让 Agent 执行 `plugin_manager install_bundle`，target 填克隆下来的目录绝对路径；或者在插件管理器里选择这个目录安装。
 
 装好后：设置 → 插件 → 找到「视频下载器」→ 启用；侧栏会出现「视频下载」图标。
 
-### 给别人用
+### 方式二：npm 包
 
-见下面「发布到 GitHub」。
+维护者执行 `npm publish` 之后，别人可以直接用插件管理器安装 `dsh-video-downloader`（需先删掉 `package.json` 里的 `"private": true`）。
+
+### 第一次打开
+
+如果本机没装 yt-dlp，页面顶部会出现「一键安装 yt-dlp」按钮，点一下就行。
 
 ## 依赖与本机环境
 
@@ -71,27 +76,33 @@ git status --ignored
 git grep -nEi "cookie|token|secret|api[_-]?key" -- '*.txt' '*.json' '*.env'
 ```
 
-## 发布到 GitHub（给别人用）
+## 仓库信息
 
-1. **建仓**：在 GitHub 新建一个空仓库，比如 `dsh-video-downloader`。
-2. **提交**：
+| 项目 | 值 |
+| --- | --- |
+| 仓库 | <https://github.com/Raymond-Hear/dsh-video-downloader> |
+| 包名 | `dsh-video-downloader` |
+| 协议 | MIT |
+| 默认分支 | `main` |
 
-   ```bash
-   git init
-   git add .
-   git commit -m "feat: video downloader plugin for DeepSeek Harness"
-   git branch -M main
-   git remote add origin https://github.com/<你的用户名>/dsh-video-downloader.git
-   git push -u origin main
-   ```
+### 发新版本
 
-   提交前确认 `git status` 里没有 `cookies.txt` / `state.json` / `.env`。
-3. **改字段**（可选但建议）：`package.json` 里补上 `repository`、`author`、`homepage`；`LICENSE` 里把 `<替换成你的名字>` 换成你自己。
-4. **别人怎么装**：
-   - **方式 A（推荐，不用发 npm）**：`git clone` 到本地，然后用插件管理器安装这个目录（和你在本地装的方式一样）。
-   - **方式 B（发 npm）**：把 `package.json` 里的 `"private": true` 删掉，`npm publish` 之后，别人用插件管理器装 `dsh-video-downloader` 这个包名即可（需要包名没被占用）。
-   - **方式 C**：如果你只想让人用，可以直接把仓库地址发给他，让他 `git clone` 后按方式 A 装。
-5. **装完第一次打开**：如果对方机器没有 yt-dlp，页面会显示「没检测到 yt-dlp」，点「一键安装 yt-dlp」就行；有 Python 的会走 pip，没有的下单文件版。
+```bash
+# 改完代码，把 package.json 的 version 往上加一位
+git add -A
+git commit -m "feat: ..."
+git tag v1.0.1
+git push origin main --tags
+```
+
+GitHub 上会按 tag 生成 release。想发 npm 的话，删掉 `package.json` 里的 `"private": true` 再 `npm publish`。
+
+### 提交前自查
+
+```bash
+git status --ignored            # 确认 cookies.txt / state.json 没被加进来
+git diff --cached --stat        # 看一眼这次改了哪些文件
+```
 
 ## 目录结构
 
