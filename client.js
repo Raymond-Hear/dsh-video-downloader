@@ -50,45 +50,47 @@ window.__ModuleLoader__.load({
     }
 
     // 常用站点（yt-dlp 实际支持的 extractor，已按本机 --list-extractors 核对）
-    // [名称, 图标文件名（assets/sites/<x>.webp）, 是否需要登录]
+    // [名称, 图标文件名（assets/sites/<x>.webp）]
+    // 注：不再逐站标「是否需要登录」——同一站点不同视频差别很大（会员/年龄/地区/风控），
+    // 实测 YouTube、X、B站 的公开内容不带 cookies 也能下，标死会误导。
     const SITES = [
       {
         group: '视频',
         items: [
-          ['YouTube', 'youtube', false],
-          ['哔哩哔哩', 'bilibili', false],
-          ['Vimeo', 'vimeo', false],
-          ['优酷', 'youku', false],
-          ['爱奇艺', 'iqiyi', false],
-          ['AcFun', 'acfun', false],
+          ['YouTube', 'youtube'],
+          ['哔哩哔哩', 'bilibili'],
+          ['Vimeo', 'vimeo'],
+          ['优酷', 'youku'],
+          ['爱奇艺', 'iqiyi'],
+          ['AcFun', 'acfun'],
         ],
       },
       {
         group: '社交',
         items: [
-          ['X / Twitter', 'x', true],
-          ['TikTok', 'tiktok', true],
-          ['Instagram', 'instagram', true],
-          ['小红书', 'xiaohongshu', true],
-          ['微博', 'weibo', true],
-          ['抖音', 'douyin', true],
+          ['X / Twitter', 'x'],
+          ['TikTok', 'tiktok'],
+          ['Instagram', 'instagram'],
+          ['小红书', 'xiaohongshu'],
+          ['微博', 'weibo'],
+          ['抖音', 'douyin'],
         ],
       },
       {
         group: '音乐',
         items: [
-          ['SoundCloud', 'soundcloud', false],
-          ['Bandcamp', 'bandcamp', false],
-          ['QQ音乐', 'qqmusic', true],
-          ['网易云音乐', 'neteasemusic', true],
+          ['SoundCloud', 'soundcloud'],
+          ['Bandcamp', 'bandcamp'],
+          ['QQ音乐', 'qqmusic'],
+          ['网易云音乐', 'neteasemusic'],
         ],
       },
       {
         group: '直播',
         items: [
-          ['Twitch', 'twitch', false],
-          ['斗鱼', 'douyu', false],
-          ['虎牙', 'huya', false],
+          ['Twitch', 'twitch'],
+          ['斗鱼', 'douyu'],
+          ['虎牙', 'huya'],
         ],
       },
     ]
@@ -802,17 +804,16 @@ window.__ModuleLoader__.load({
               ' 驱动 · 上千个站点')),
           SITES.map((section) => h('div', { className: 'ytdlp-sites-row', key: section.group },
             h('span', { className: 'ytdlp-sites-label' }, section.group),
-            h('div', { className: 'ytdlp-sites-chips' }, section.items.map(([name, icon, login]) =>
-              h('span', { className: 'ytdlp-site', key: name, title: login ? '通常需要登录 Cookie' : '' },
+            h('div', { className: 'ytdlp-sites-chips' }, section.items.map(([name, icon]) =>
+              h('span', { className: 'ytdlp-site', key: name },
                 h('img', {
                   className: 'ytdlp-site-mark',
                   src: `${BASE}/assets/sites/${icon}.webp`,
                   alt: '', loading: 'lazy',
                   onError: (e) => { e.currentTarget.style.visibility = 'hidden' },
                 }),
-                name,
-                login ? h('span', { style: { fontSize: '7px', color: 'var(--dsw-alias-state-warn-primary)', lineHeight: 1 } }, '●') : null))))),
-          h('div', { className: 'ytdlp-sites-note' }, '带黄点的一般要先配 cookies.txt，其余直接贴链接。'),
+                name))))),
+          h('div', { className: 'ytdlp-sites-note' }, '公开内容直接贴链接就能下。会员、年龄限制、地区限制，或偶尔的风控提示要登录时，再配 cookies.txt。'),
         )
 
         const queueHead = h('div', { className: 'ytdlp-queue-head' },
