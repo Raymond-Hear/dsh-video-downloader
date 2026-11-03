@@ -50,45 +50,45 @@ window.__ModuleLoader__.load({
     }
 
     // 常用站点（yt-dlp 实际支持的 extractor，已按本机 --list-extractors 核对）
-    // [名称, 底色, 字色, 徽标字母, 是否需要登录]
+    // [名称, 图标文件名（assets/sites/<x>.webp）, 是否需要登录]
     const SITES = [
       {
         group: '视频',
         items: [
-          ['YouTube', '#ff0033', '#fff', 'Y', false],
-          ['哔哩哔哩', '#fb7299', '#fff', 'B', false],
-          ['Vimeo', '#1ab7ea', '#fff', 'V', false],
-          ['优酷', '#1ba5e0', '#fff', '优', false],
-          ['爱奇艺', '#00be06', '#fff', '爱', false],
-          ['AcFun', '#fd4c5d', '#fff', 'A', false],
+          ['YouTube', 'youtube', false],
+          ['哔哩哔哩', 'bilibili', false],
+          ['Vimeo', 'vimeo', false],
+          ['优酷', 'youku', false],
+          ['爱奇艺', 'iqiyi', false],
+          ['AcFun', 'acfun', false],
         ],
       },
       {
         group: '社交',
         items: [
-          ['X / Twitter', '#191919', '#fff', 'X', true],
-          ['TikTok', '#25f4ee', '#111', 'T', true],
-          ['Instagram', '#e1306c', '#fff', 'I', true],
-          ['小红书', '#ff2442', '#fff', '红', true],
-          ['微博', '#e6162d', '#fff', '微', true],
-          ['抖音', '#161823', '#fff', '抖', true],
+          ['X / Twitter', 'x', true],
+          ['TikTok', 'tiktok', true],
+          ['Instagram', 'instagram', true],
+          ['小红书', 'xiaohongshu', true],
+          ['微博', 'weibo', true],
+          ['抖音', 'douyin', true],
         ],
       },
       {
         group: '音乐',
         items: [
-          ['SoundCloud', '#ff5500', '#fff', 'S', false],
-          ['Bandcamp', '#629aa9', '#fff', 'B', false],
-          ['QQ音乐', '#31c27c', '#fff', 'Q', true],
-          ['网易云音乐', '#c20c0c', '#fff', '网', true],
+          ['SoundCloud', 'soundcloud', false],
+          ['Bandcamp', 'bandcamp', false],
+          ['QQ音乐', 'qqmusic', true],
+          ['网易云音乐', 'neteasemusic', true],
         ],
       },
       {
         group: '直播',
         items: [
-          ['Twitch', '#9146ff', '#fff', 'T', false],
-          ['斗鱼', '#ff7700', '#fff', '斗', false],
-          ['虎牙', '#ff9900', '#111', '虎', false],
+          ['Twitch', 'twitch', false],
+          ['斗鱼', 'douyu', false],
+          ['虎牙', 'huya', false],
         ],
       },
     ]
@@ -247,7 +247,7 @@ window.__ModuleLoader__.load({
 .ytdlp-sites-label { width: 26px; flex: none; font-size: 11px; color: var(--dsw-alias-label-secondary); padding-top: 4px; }
 .ytdlp-sites-chips { display: flex; flex-wrap: wrap; gap: 6px; }
 .ytdlp-site { display: inline-flex; align-items: center; gap: 5px; font-size: 11.5px; line-height: 1; padding: 3px 8px 3px 3px; border-radius: 999px; border: 1px solid var(--dsw-alias-border-l1); background: var(--dsw-alias-bg-layer-2); color: var(--dsw-alias-label-primary); }
-.ytdlp-site-mark { width: 17px; height: 17px; border-radius: 5px; display: inline-flex; align-items: center; justify-content: center; font-size: 10px; font-weight: 700; line-height: 1; flex: none; }
+.ytdlp-site-mark { width: 18px; height: 18px; border-radius: 5px; object-fit: cover; flex: none; display: block; background: var(--dsw-alias-bg-layer-2); }
 .ytdlp-sites-note { font-size: 11px; color: var(--dsw-alias-label-secondary); line-height: 1.5; }
 .ytdlp-linkbtn { border: 0; background: none; color: var(--dsw-alias-brand-primary); font: inherit; cursor: pointer; padding: 0; }
 .ytdlp-linkbtn:hover { text-decoration: underline; }
@@ -802,9 +802,14 @@ window.__ModuleLoader__.load({
               ' 驱动 · 上千个站点')),
           SITES.map((section) => h('div', { className: 'ytdlp-sites-row', key: section.group },
             h('span', { className: 'ytdlp-sites-label' }, section.group),
-            h('div', { className: 'ytdlp-sites-chips' }, section.items.map(([name, color, fg, mark, login]) =>
+            h('div', { className: 'ytdlp-sites-chips' }, section.items.map(([name, icon, login]) =>
               h('span', { className: 'ytdlp-site', key: name, title: login ? '通常需要登录 Cookie' : '' },
-                h('i', { className: 'ytdlp-site-mark', style: { background: color, color: fg } }, mark),
+                h('img', {
+                  className: 'ytdlp-site-mark',
+                  src: `${BASE}/assets/sites/${icon}.webp`,
+                  alt: '', loading: 'lazy',
+                  onError: (e) => { e.currentTarget.style.visibility = 'hidden' },
+                }),
                 name,
                 login ? h('span', { style: { fontSize: '7px', color: 'var(--dsw-alias-state-warn-primary)', lineHeight: 1 } }, '●') : null))))),
           h('div', { className: 'ytdlp-sites-note' }, '带黄点的一般要先配 cookies.txt，其余直接贴链接。'),

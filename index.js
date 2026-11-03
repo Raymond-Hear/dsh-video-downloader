@@ -811,9 +811,13 @@ export function apply(ctx) {
         const rest = url.pathname.slice(BASE.length) || '/'
         try {
           if (rest.startsWith('/assets/') && (req.method === 'GET' || req.method === 'HEAD')) {
-            const assetName = basename(rest.slice('/assets/'.length))
-            const file = join(ASSET_DIR, assetName)
-            const type = ASSET_MIME[extname(assetName).toLowerCase()]
+            // 只允许 assets 下的简单相对路径（可含子目录），挡掉 ../ 之类
+            const rel = decodeURIComponent(rest.slice('/assets/'.length))
+            if (!/^[A-Za-z0-9_\-/]+\.(webp|png|jpg|jpeg|svg)$/.test(rel) || rel.includes('..')) {
+              return sendJson(res, 404, { error: 'asset not found' })
+            }
+            const file = join(ASSET_DIR, rel)
+            const type = ASSET_MIME[extname(rel).toLowerCase()]
             if (!type || !existsSync(file)) return sendJson(res, 404, { error: 'asset not found' })
             res.writeHead(200, {
               'content-type': type,
