@@ -30,6 +30,10 @@
 
 需要登录的站点（X、Instagram、小红书、会员视频等）要先配 cookies.txt：用浏览器扩展 **Get cookies.txt LOCALLY** 在目标站点导出，然后在面板点「上传 cookies.txt」。B站、TikTok 这类通常直接贴链接就行。
 
+面板里鼠标移到「怎么导出？看这张图」会弹出下面这张流程图的缩略预览，点一下看大图：
+
+![Cookies 导出与使用：装扩展 → 登录目标站点 → 点 Export → 上传到工具](assets/cookies-guide.webp)
+
 ## 致谢：基于 yt-dlp
 
 本插件是 [yt-dlp](https://github.com/yt-dlp/yt-dlp) 的图形前端——真正解析、下载、合并的工作全部由它完成，这里只负责界面、队列和参数组装。

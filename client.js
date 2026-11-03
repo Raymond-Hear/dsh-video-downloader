@@ -15,7 +15,7 @@ window.__ModuleLoader__.load({
 
     const PANEL = 'video-downloader'
     const BASE = '/ytdlp'
-    const COOKIE_HELP = '在已登录的目标站点页面，用扩展 Get cookies.txt LOCALLY 点 Export（Edge / Chrome 应用商店都能装）。传一次长期生效，换账号重传即可。只有 YouTube、Instagram 这类要登录的站点才用得上，B站、X、TikTok 通常直接贴链接就行。'
+    const COOKIE_HELP = '在已登录的目标站点页面，用扩展 Get cookies.txt LOCALLY 点 Export。传一次长期生效，换账号重传即可。只有 YouTube、Instagram 这类要登录的站点才用得上，B站 / X / TikTok 通常直接贴链接就行。'
 
     const QUALITIES = [
       ['best', '最佳画质'],
@@ -246,6 +246,15 @@ window.__ModuleLoader__.load({
 .ytdlp-site { display: inline-flex; align-items: center; gap: 5px; font-size: 11.5px; line-height: 1; padding: 3px 8px 3px 3px; border-radius: 999px; border: 1px solid var(--dsw-alias-border-l1); background: var(--dsw-alias-bg-layer-2); color: var(--dsw-alias-label-primary); }
 .ytdlp-site-mark { width: 17px; height: 17px; border-radius: 5px; display: inline-flex; align-items: center; justify-content: center; font-size: 10px; font-weight: 700; line-height: 1; flex: none; }
 .ytdlp-sites-note { font-size: 11px; color: var(--dsw-alias-label-secondary); line-height: 1.5; }
+.ytdlp-linkbtn { border: 0; background: none; color: var(--dsw-alias-brand-primary); font: inherit; cursor: pointer; padding: 0; }
+.ytdlp-linkbtn:hover { text-decoration: underline; }
+.ytdlp-guide-pop { position: fixed; z-index: 60; width: 560px; background: var(--dsw-alias-bg-overlay); border: 1px solid var(--dsw-alias-border-l1); border-radius: 10px; padding: 8px; box-shadow: 0 12px 32px rgba(0, 0, 0, .28); }
+.ytdlp-guide-pop img { width: 100%; display: block; border-radius: 6px; }
+.ytdlp-guide-hint { font-size: 11px; color: var(--dsw-alias-label-secondary); padding: 6px 2px 0; }
+.ytdlp-modal { position: fixed; inset: 0; z-index: 70; background: rgba(0, 0, 0, .64); display: flex; align-items: center; justify-content: center; padding: 24px; }
+.ytdlp-modal img { max-width: min(1500px, 92vw); max-height: 86vh; border-radius: 10px; background: #fff; box-shadow: 0 24px 60px rgba(0, 0, 0, .45); }
+.ytdlp-modal-close { position: fixed; top: 16px; right: 20px; width: 34px; height: 34px; border-radius: 50%; border: 0; background: rgba(255, 255, 255, .16); color: #fff; font-size: 18px; line-height: 1; cursor: pointer; }
+.ytdlp-modal-close:hover { background: rgba(255, 255, 255, .28); }
 @media (max-width: 880px) {
   .ytdlp-body { overflow: auto; }
   .ytdlp-grid { grid-template-columns: minmax(0, 1fr); }
@@ -271,6 +280,8 @@ window.__ModuleLoader__.load({
         const [busy, setBusy] = React.useState('')
         const [notice, setNotice] = React.useState(null)
         const [cookieCheck, setCookieCheck] = React.useState(null)
+        const [guide, setGuide] = React.useState(null)
+        const [guideBig, setGuideBig] = React.useState(false)
         const [advanced, setAdvanced] = React.useState(false)
         const fileInput = React.useRef(null)
         const seeded = React.useRef(false)
@@ -562,7 +573,21 @@ window.__ModuleLoader__.load({
           }),
         )
 
-        const cookieNote = h('div', { className: 'ytdlp-meta', style: { marginTop: '8px' } }, COOKIE_HELP)
+        const cookieNote = h('div', { className: 'ytdlp-meta', style: { marginTop: '8px' } },
+          COOKIE_HELP, ' ',
+          h('button', {
+            className: 'ytdlp-linkbtn',
+            onMouseEnter: (e) => {
+              const rect = e.currentTarget.getBoundingClientRect()
+              const width = 560
+              const left = Math.min(Math.max(12, rect.left + rect.width - width), window.innerWidth - width - 12)
+              const top = Math.min(rect.bottom + 8, window.innerHeight - 360)
+              setGuide({ left, top })
+            },
+            onMouseLeave: () => setGuide(null),
+            onClick: () => { setGuide(null); setGuideBig(true) },
+          }, '怎么导出？看这张图'),
+        )
 
         const advancedRow = advanced
           ? h('div', { className: 'ytdlp-adv' },
@@ -642,7 +667,8 @@ window.__ModuleLoader__.load({
           cookieRow,
           cookieCheck
             ? h('div', { className: `ytdlp-alert ${cookieCheck.level || (cookieCheck.ok ? 'ok' : 'error')}`, style: { marginTop: '10px' } }, cookieCheck.message)
-            : cookieNote,
+            : null,
+          cookieNote,
           advancedRow,
           h('div', { className: 'ytdlp-row' },
             h('button', { className: 'ytdlp-btn ghost', onClick: readClipboard, title: '把剪贴板里的链接读进来' }, '读剪贴板'),
@@ -803,6 +829,24 @@ window.__ModuleLoader__.load({
             ),
           ),
           foot,
+          guide
+            ? h('div', {
+              className: 'ytdlp-guide-pop',
+              style: { left: `${guide.left}px`, top: `${guide.top}px` },
+              onMouseLeave: () => setGuide(null),
+            },
+              h('img', { src: `${BASE}/assets/cookies-guide.webp`, alt: 'cookies 导出四步图' }),
+              h('div', { className: 'ytdlp-guide-hint' }, '点图片看大图'))
+            : null,
+          guideBig
+            ? h('div', { className: 'ytdlp-modal', onClick: () => setGuideBig(false) },
+              h('button', { className: 'ytdlp-modal-close', onClick: () => setGuideBig(false) }, '×'),
+              h('img', {
+                src: `${BASE}/assets/cookies-guide.webp`,
+                alt: 'cookies 导出四步图',
+                onClick: (e) => e.stopPropagation(),
+              }))
+            : null,
         )
       }
 

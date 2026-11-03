@@ -10,14 +10,20 @@
 //   /ytdlp/api/cookies/* 检查、上传、清除 cookies.txt
 //   /ytdlp/api/open      在资源管理器里打开保存目录 / 定位文件
 import { spawn, spawnSync } from 'node:child_process'
-import { createWriteStream, existsSync, mkdirSync, readFileSync, renameSync, statSync, writeFileSync } from 'node:fs'
+import { createReadStream, createWriteStream, existsSync, mkdirSync, readFileSync, renameSync, statSync, writeFileSync } from 'node:fs'
 import { get as httpsGet } from 'node:https'
-import { dirname, join } from 'node:path'
+import { basename, dirname, extname, join } from 'node:path'
 import { homedir } from 'node:os'
 import { StringDecoder } from 'node:string_decoder'
+import { fileURLToPath } from 'node:url'
 
 export const name = 'video-downloader'
 export const inject = ['webServer']
+
+const PLUGIN_ROOT = dirname(fileURLToPath(import.meta.url))
+// 界面里用到的静态图片（比如 cookies 导出步骤图）
+const ASSET_DIR = join(PLUGIN_ROOT, 'assets')
+const ASSET_MIME = { '.webp': 'image/webp', '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.svg': 'image/svg+xml' }
 
 const BASE = '/ytdlp'
 const STATE_DIR = join(process.env.LOCALAPPDATA || join(homedir(), '.local', 'share'), 'dsh-ytdlp')
@@ -782,6 +788,19 @@ export function apply(ctx) {
         const url = new URL(req.url || '/', 'http://local')
         const rest = url.pathname.slice(BASE.length) || '/'
         try {
+          if (rest.startsWith('/assets/') && (req.method === 'GET' || req.method === 'HEAD')) {
+            const assetName = basename(rest.slice('/assets/'.length))
+            const file = join(ASSET_DIR, assetName)
+            const type = ASSET_MIME[extname(assetName).toLowerCase()]
+            if (!type || !existsSync(file)) return sendJson(res, 404, { error: 'asset not found' })
+            res.writeHead(200, {
+              'content-type': type,
+              'content-length': String(statSync(file).size),
+              'cache-control': 'public, max-age=86400',
+            })
+            if (req.method === 'HEAD') return res.end()
+            return createReadStream(file).pipe(res)
+          }
           if (rest === '/api/env' && req.method === 'GET') return sendJson(res, 200, envPayload())
           if (rest === '/api/jobs' && req.method === 'GET') return sendJson(res, 200, { jobs: jobList(), queue: { paused, running: running.size, queued: queue.length, concurrency: concurrency() } })
           if (rest === '/api/download' && req.method === 'POST') return sendJson(res, 200, { job: startDownload(await readJson(req)) })
