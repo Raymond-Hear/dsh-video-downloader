@@ -15,7 +15,7 @@ window.__ModuleLoader__.load({
 
     const PANEL = 'video-downloader'
     const BASE = '/ytdlp'
-    const COOKIE_HELP = '登录后才有的内容才需要它。导出一次，长期有效。'
+    const COOKIE_HELP = '需要登录的内容才用得上。'
 
     const QUALITIES = [
       ['best', '最佳画质'],
@@ -601,7 +601,7 @@ window.__ModuleLoader__.load({
             onMouseEnter: showGuide,
             onMouseLeave: hideGuide,
             onClick: () => { hideGuide(); setGuideBig(true) },
-          }, '导出步骤 →'),
+          }, '如何导出 cookies.txt，点击查看'),
         )
 
         const advancedRow = advanced
@@ -860,7 +860,7 @@ window.__ModuleLoader__.load({
               onMouseLeave: hideGuide,
             },
               h('img', { src: `${BASE}/assets/cookies-guide.webp`, alt: 'cookies 导出四步图' }),
-              h('div', { className: 'ytdlp-guide-hint' }, '点一下看大图'))
+              h('div', { className: 'ytdlp-guide-hint' }, '有效期内可长期复用；失效或换账号后重新导出 · 点图片看大图'))
             : null,
           guideBig
             ? h('div', { className: 'ytdlp-modal', onClick: () => setGuideBig(false) },

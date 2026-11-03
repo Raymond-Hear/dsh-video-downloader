@@ -750,25 +750,47 @@ function cancelJob(id) {
   return false
 }
 
-function openPath(target, reveal = false) {
-  const resolved = target || outputDir()
-  if (!existsSync(resolved)) {
-    mkdirSync(resolved, { recursive: true })
-  }
-  const platform = process.platform
+// 打开资源管理器。注意 Windows 的 /select, 必须和路径拼成【同一个】参数，
+// 拆成两个参数时 explorer 会忽略路径，表现就是"点了没反应"。
+function launchExplorer(target, reveal) {
   try {
-    if (platform === 'win32') {
-      const args = reveal && resolved.includes('.') ? ['/select,', resolved] : [resolved]
-      spawn('explorer.exe', args, { detached: true, windowsHide: true }).unref()
-    } else if (platform === 'darwin') {
-      spawn('open', [reveal ? '-R' : '', resolved].filter(Boolean), { detached: true }).unref()
-    } else {
-      spawn('xdg-open', [reveal ? dirname(resolved) : resolved], { detached: true }).unref()
+    if (process.platform === 'win32') {
+      const args = reveal ? [`/select,${target}`] : [target]
+      const child = spawn('explorer.exe', args, { detached: true, stdio: 'ignore' })
+      child.on('error', () => {})
+      child.unref()
+      return true
     }
+    if (process.platform === 'darwin') {
+      const child = spawn('open', reveal ? ['-R', target] : [target], { detached: true, stdio: 'ignore' })
+      child.on('error', () => {})
+      child.unref()
+      return true
+    }
+    const child = spawn('xdg-open', [reveal ? dirname(target) : target], { detached: true, stdio: 'ignore' })
+    child.on('error', () => {})
+    child.unref()
     return true
   } catch {
     return false
   }
+}
+
+function openPath(target, reveal = false) {
+  const raw = String(target || '').trim()
+  const resolved = raw || outputDir()
+  let isDir = false
+  const exists = existsSync(resolved)
+  if (exists) {
+    try { isDir = statSync(resolved).isDirectory() } catch {}
+    return launchExplorer(resolved, Boolean(reveal) && !isDir)
+  }
+  // 文件被删了：退回到它所在目录；目录也没了就打开保存目录
+  if (raw) {
+    const parent = dirname(resolved)
+    if (existsSync(parent)) return launchExplorer(parent, false)
+  }
+  return launchExplorer(outputDir(), false)
 }
 
 export function apply(ctx) {
