@@ -3,6 +3,8 @@
 侧栏「视频下载」入口 + 主区域页面：贴一个链接，用本机 `yt-dlp` 下载视频 / 音频 / 字幕 / 封面，进度实时刷新。
 
 支持 YouTube、哔哩哔哩、X、TikTok 等上千个站点——它本质上是一个 yt-dlp 的图形前端。
+<img width="1920" height="1078" alt="image" src="https://github.com/user-attachments/assets/30ca6c0b-832a-44c4-8a16-108a27d755f5" />
+
 
 ## 功能
 
