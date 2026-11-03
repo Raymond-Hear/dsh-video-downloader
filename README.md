@@ -53,23 +53,40 @@
 
 仓库：<https://github.com/Raymond-Hear/dsh-video-downloader>
 
-### 方式一：下载源码，用插件管理器装（推荐）
+### 方式一：跟 Harness 说一句话（最省事）
+
+打开 DeepSeek Harness，把下面这句发给它：
+
+> 帮我安装这个插件：https://github.com/Raymond-Hear/dsh-video-downloader
+
+Agent 会调用 `plugin_manager` 的 `install_bundle`，把仓库地址当成安装源（git 规格）拉下来，装进当前 profile 并默认启用，**不需要手动改任何配置文件**。插件安装需要 `danger-full-access` 权限，所以会让你批准一次；批准后等它跑完就行。两种写法都实测可用：`https://github.com/Raymond-Hear/dsh-video-downloader` 和 `github:Raymond-Hear/dsh-video-downloader`。
+
+装好后点侧栏「视频下载」即可使用；想确认是否装上：设置 → 插件，能看到「视频下载器」这一行。
+
+### 方式二：先 clone，再装本地目录
+
+如果你的 Harness 版本不接受 git 地址安装，就走这条：
 
 ```bash
 git clone https://github.com/Raymond-Hear/dsh-video-downloader.git
 ```
 
-然后在 DeepSeek Harness 里让 Agent 执行 `plugin_manager install_bundle`，target 填克隆下来的目录绝对路径；或者在插件管理器里选择这个目录安装。
+然后让 Agent 执行 `plugin_manager install_bundle`，target 填**克隆下来的目录绝对路径**；也可以在插件管理页面里选这个目录安装。
 
-装好后：设置 → 插件 → 找到「视频下载器」→ 启用；侧栏会出现「视频下载」图标。
+### 方式三：npm 包（维护者发布后可用）
 
-### 方式二：npm 包
+`npm publish` 之后，别人可以直接安装 `dsh-video-downloader` 这个包名（发布前需删掉 `package.json` 里的 `"private": true`）。
 
-维护者执行 `npm publish` 之后，别人可以直接用插件管理器安装 `dsh-video-downloader`（需先删掉 `package.json` 里的 `"private": true`）。
+### 装完第一次打开
 
-### 第一次打开
+- 本机没有 yt-dlp 时，页面顶部会出现「一键安装 yt-dlp」按钮：先试官方单文件版，拉不动就退回 `pip install -U yt-dlp`。
+- 建议顺手装 ffmpeg（`winget install ffmpeg`），否则高清画质无法合并、MP3 转码、封面转 jpg 会失败；装完点右上角「重新检测」。
+- 默认保存到 `~/Downloads/YT-DLP`，可在页面底部改。
 
-如果本机没装 yt-dlp，页面顶部会出现「一键安装 yt-dlp」按钮，点一下就行。
+### 更新与卸载
+
+- **更新**：在插件管理器里对「视频下载器」执行更新（或重新用 git 地址装一次），然后重启 Harness 让 Host 侧代码重载。
+- **卸载**：插件管理器里移除这个 bundle。下载好的文件、以及 `%LOCALAPPDATA%\dsh-ytdlp\` 里的记录不会被删除。
 
 ## 依赖与本机环境
 
