@@ -27,6 +27,14 @@ const DEFAULT_OUTPUT = join(homedir(), 'Downloads', 'YT-DLP')
 const BIN_DIR = join(STATE_DIR, 'bin')
 const MANAGED_EXE = join(BIN_DIR, 'yt-dlp.exe')
 
+// 版本号只有一个来源：package.json
+const PKG = (() => {
+  try { return JSON.parse(readFileSync(new URL('./package.json', import.meta.url), 'utf8')) } catch { return {} }
+})()
+export const VERSION = PKG.version || '0.0.0'
+export const REPO_URL = 'https://github.com/Raymond-Hear/dsh-video-downloader'
+export const AUTHOR = '聆风 Raymond'
+
 // 优先找独立可执行文件；没有就用 Python 模块方式（很多机器只装了 pip 版）。
 const CANDIDATES = [
   { command: 'yt-dlp', prefix: [] },
@@ -541,6 +549,47 @@ function probe(rawUrl, cookieOpts = {}) {
   })
 }
 
+/* ---------------------------------------------------------------- preview */
+
+// 取一个能直接播放的临时直链（720p 以内的单文件流），给页面里的 <video> 预试用
+function previewSource(rawUrl, opts = {}) {
+  const tool = requireTool()
+  return new Promise((resolve, reject) => {
+    const args = [...tool.prefix, '-g', '--no-playlist', '--no-warnings', '--color', 'never', '-f', 'b[height<=720]/b']
+    const file = opts.cookiesFile || (opts.cookies ? '' : state.defaults.cookiesFile) || ''
+    if (file) args.push('--cookies', String(file))
+    else if (opts.cookies) args.push('--cookies-from-browser', String(opts.cookies))
+    if (state.defaults.proxy) args.push('--proxy', String(state.defaults.proxy))
+    args.push(rawUrl)
+    let child
+    try {
+      child = spawn(tool.command, args, { windowsHide: true, env: CHILD_ENV, stdio: ['ignore', 'pipe', 'pipe'] })
+    } catch (err) {
+      return reject(err)
+    }
+    let out = ''
+    let err = ''
+    const timer = setTimeout(() => {
+      try { child.kill() } catch {}
+      reject(Object.assign(new Error('取预览地址超时'), { status: 504 }))
+    }, 60000)
+    child.stdout.setEncoding('utf8')
+    child.stdout.on('data', (chunk) => { out += chunk })
+    child.stderr.setEncoding('utf8')
+    child.stderr.on('data', (chunk) => { err += chunk })
+    child.on('error', (e) => { clearTimeout(timer); reject(e) })
+    child.on('close', (code) => {
+      clearTimeout(timer)
+      const first = out.split(/\r?\n/).map((line) => line.trim()).filter(Boolean)[0]
+      if (code !== 0 || !first || !/^https?:\/\//i.test(first)) {
+        const last = err.trim().split(/\r?\n/).filter(Boolean).pop() || '拿不到可播放的直链'
+        return reject(Object.assign(new Error(friendlyError(last.replace(/^ERROR:\s*/, ''))), { status: 400 }))
+      }
+      resolve({ stream: first })
+    })
+  })
+}
+
 /* ---------------------------------------------------------------- web layer */
 
 function sendJson(res, status, body) {
@@ -573,6 +622,9 @@ function envPayload() {
     state.defaults = { ...state.defaults, cookiesFile: '' }
   }
   return {
+    version: VERSION,
+    repo: REPO_URL,
+    author: AUTHOR,
     tool: tool ? { ok: true, version: tool.version, command: [tool.command, ...tool.prefix].join(' '), managed: tool.command === MANAGED_EXE } : { ok: false, version: '', command: '', managed: false },
     ffmpeg: ffmpeg ? { ok: true, version: ffmpeg } : { ok: false, version: '' },
     outputDir: outputDir(),
@@ -752,6 +804,12 @@ export function apply(ctx) {
           if (rest === '/api/cookies/check' && req.method === 'POST') {
             const body = await readJson(req)
             return sendJson(res, 200, inspectCookiesFile(String(body.path || '').trim()))
+          }
+          if (rest === '/api/preview' && req.method === 'POST') {
+            const body = await readJson(req)
+            const url3 = String(body.url || '').trim()
+            if (!/^https?:\/\/\S+$/i.test(url3)) return sendJson(res, 400, { error: '链接看起来不对' })
+            return sendJson(res, 200, await previewSource(url3, { cookies: String(body.cookies || ''), cookiesFile: String(body.cookiesFile || '') }))
           }
           if (rest === '/api/cookies/upload' && req.method === 'POST') {
             const body = await readJson(req, 4 * 1024 * 1024)

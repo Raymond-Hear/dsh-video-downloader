@@ -140,11 +140,18 @@ window.__ModuleLoader__.load({
       const size = (props && props.size) || 18
       return h('svg', {
         width: size, height: size, viewBox: '0 0 24 24', fill: 'none',
-        stroke: 'currentColor', strokeWidth: 1.6, strokeLinecap: 'round', strokeLinejoin: 'round',
+        stroke: 'currentColor', strokeWidth: 2, strokeLinecap: 'round', strokeLinejoin: 'round',
       },
         h('path', { d: 'M12 3.5v11' }),
         h('path', { d: 'M7.5 10.5 12 15l4.5-4.5' }),
         h('path', { d: 'M4.5 17.5v1.2a1.3 1.3 0 0 0 1.3 1.3h12.4a1.3 1.3 0 0 0 1.3-1.3v-1.2' }))
+    }
+
+    function GithubIcon() {
+      return h('svg', { width: 16, height: 16, viewBox: '0 0 16 16', fill: 'currentColor', 'aria-hidden': true },
+        h('path', {
+          d: 'M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27s1.36.09 2 .27c1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8z',
+        }))
     }
 
     /* ------------------------------------------------------------------- css */
@@ -153,6 +160,13 @@ window.__ModuleLoader__.load({
 .ytdlp-root { height: 100%; min-height: 0; display: flex; flex-direction: column; background: var(--dsw-alias-bg-base); color: var(--dsw-alias-label-primary); font-size: 13px; }
 .ytdlp-head { display: flex; align-items: center; gap: 10px; padding: 14px 22px; border-bottom: 1px solid var(--dsw-alias-border-l1); }
 .ytdlp-head h1 { font-size: 15px; font-weight: 600; margin: 0; }
+.ytdlp-logo { width: 26px; height: 26px; border-radius: 8px; display: inline-flex; align-items: center; justify-content: center; background: var(--dsw-alias-brand-primary); color: var(--dsw-alias-bg-base); flex: none; }
+.ytdlp-ver { font-size: 11px; color: var(--dsw-alias-label-secondary); border: 1px solid var(--dsw-alias-border-l1); border-radius: 999px; padding: 1px 7px; }
+.ytdlp-gh { display: inline-flex; align-items: center; justify-content: center; width: 30px; height: 30px; border-radius: 8px; border: 1px solid var(--dsw-alias-border-l1); color: var(--dsw-alias-label-secondary); text-decoration: none; background: transparent; }
+.ytdlp-gh:hover { color: var(--dsw-alias-label-primary); border-color: var(--dsw-alias-border-l2); }
+.ytdlp-credit { display: inline-flex; align-items: center; gap: 6px; }
+.ytdlp-credit a { color: var(--dsw-alias-label-secondary); text-decoration: none; }
+.ytdlp-credit a:hover { color: var(--dsw-alias-brand-primary); }
 .ytdlp-chip { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: var(--dsw-alias-label-secondary); }
 .ytdlp-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--dsw-alias-state-idle-primary); }
 .ytdlp-dot.ok { background: var(--dsw-alias-state-success-primary); }
@@ -180,6 +194,11 @@ window.__ModuleLoader__.load({
 .ytdlp-adv { margin-top: 12px; padding-top: 12px; border-top: 1px dashed var(--dsw-alias-border-l1); display: flex; flex-wrap: wrap; gap: 10px 14px; align-items: center; }
 .ytdlp-field { display: inline-flex; align-items: center; gap: 6px; color: var(--dsw-alias-label-secondary); font-size: 12px; }
 .ytdlp-preview { display: flex; gap: 14px; }
+.ytdlp-media { width: 240px; flex: none; position: relative; border-radius: 9px; overflow: hidden; background: var(--dsw-alias-bg-layer-2); aspect-ratio: 16 / 9; }
+.ytdlp-media img, .ytdlp-media video { width: 100%; height: 100%; object-fit: cover; display: block; }
+.ytdlp-play { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; gap: 6px; color: #fff; font-size: 12px; background: rgba(0, 0, 0, .35); cursor: pointer; }
+.ytdlp-play:hover { background: rgba(0, 0, 0, .5); }
+.ytdlp-play span { display: inline-flex; align-items: center; gap: 6px; padding: 6px 12px; border-radius: 999px; background: rgba(0, 0, 0, .55); }
 .ytdlp-thumb { width: 176px; height: 99px; border-radius: 8px; object-fit: cover; background: var(--dsw-alias-bg-layer-2); flex: none; }
 .ytdlp-preview-main { min-width: 0; display: flex; flex-direction: column; gap: 5px; }
 .ytdlp-preview-title { font-size: 14px; font-weight: 600; line-height: 1.4; }
@@ -226,6 +245,7 @@ window.__ModuleLoader__.load({
           proxy: '', limitRate: '', concurrency: 2, autoOpen: false,
         })
         const [preview, setPreview] = React.useState(null)
+        const [video, setVideo] = React.useState(null)
         const [jobs, setJobs] = React.useState([])
         const [queue, setQueue] = React.useState({ paused: false, running: 0, queued: 0, concurrency: 2 })
         const [busy, setBusy] = React.useState('')
@@ -314,6 +334,7 @@ window.__ModuleLoader__.load({
             const base = payload()
             const data = await api('/api/probe', { url: first, cookies: base.cookies, cookiesFile: base.cookiesFile })
             setPreview(data.video)
+            setVideo(null)
           } catch (err) {
             setPreview(null)
             setNotice({ kind: 'error', text: String(err.message || err) })
@@ -407,6 +428,24 @@ window.__ModuleLoader__.load({
           try { setCookieCheck(await api('/api/cookies/check', { path })) } catch (err) { setCookieCheck({ level: 'error', message: String(err.message || err) }) }
         }
 
+        // 试看：向 Host 要一个临时直链，塞进 <video>
+        async function loadPreview() {
+          if (!preview || video && video.loading) return
+          setVideo({ loading: true })
+          try {
+            const base = payload()
+            const data = await api('/api/preview', {
+              url: preview.webpageUrl || lines(url).find(looksLikeUrl),
+              cookies: base.cookies,
+              cookiesFile: base.cookiesFile,
+            })
+            setVideo({ url: data.stream })
+          } catch (err) {
+            setVideo(null)
+            setNotice({ kind: 'error', text: `试看失败：${String(err.message || err)}` })
+          }
+        }
+
         async function uploadCookies(file) {
           if (!file) return
           try {
@@ -436,7 +475,9 @@ window.__ModuleLoader__.load({
         const active = (queue && (queue.running + queue.queued)) || 0
 
         const header = h('div', { className: 'ytdlp-head' },
+          h('span', { className: 'ytdlp-logo' }, h(DownloadIcon, { size: 16 })),
           h('h1', null, '视频下载器'),
+          h('span', { className: 'ytdlp-ver', title: '插件版本' }, `v${(env && env.version) || '—'}`),
           h('div', { className: 'ytdlp-chip' },
             h('i', { className: `ytdlp-dot ${toolOk ? 'ok' : 'bad'}` }),
             toolOk ? `yt-dlp ${env.tool.version}` : '未检测到 yt-dlp'),
@@ -446,6 +487,11 @@ window.__ModuleLoader__.load({
           h('div', { className: 'ytdlp-spacer' }),
           active ? h('div', { className: 'ytdlp-chip' }, `运行 ${queue.running} · 排队 ${queue.queued}`) : null,
           active ? h('button', { className: 'ytdlp-btn ghost', onClick: toggleQueue }, queue.paused ? '继续队列' : '暂停队列') : null,
+          h('a', {
+            className: 'ytdlp-gh',
+            href: (env && env.repo) || 'https://github.com/Raymond-Hear/dsh-video-downloader',
+            target: '_blank', rel: 'noreferrer', title: '在 GitHub 查看源码',
+          }, h(GithubIcon)),
           h('button', { className: 'ytdlp-btn ghost', onClick: recheck, title: '重新检测本机命令' }, '重新检测'))
 
         const modeRow = h('div', { className: 'ytdlp-row' },
@@ -590,12 +636,26 @@ window.__ModuleLoader__.load({
 
         const previewCard = preview
           ? h('div', { className: 'ytdlp-card ytdlp-preview' },
-            preview.thumbnail
-              ? h('img', {
-                className: 'ytdlp-thumb', src: preview.thumbnail, alt: '',
-                onError: (e) => { e.currentTarget.style.visibility = 'hidden' },
-              })
-              : null,
+            h('div', { className: 'ytdlp-media' },
+              video && video.url
+                ? h('video', {
+                  src: video.url,
+                  controls: true,
+                  autoPlay: true,
+                  playsInline: true,
+                  poster: preview.thumbnail || undefined,
+                  onError: () => {
+                    setVideo(null)
+                    setNotice({ kind: 'error', text: '试看失败：浏览器没能直接播放这个源，先下载再看，或点标题去原站。' })
+                  },
+                })
+                : h('div', { className: 'ytdlp-play', onClick: loadPreview, title: '点这里试看' },
+                  preview.thumbnail
+                    ? h('img', { src: preview.thumbnail, alt: '', onError: (e) => { e.currentTarget.style.visibility = 'hidden' } })
+                    : null,
+                  h('span', null, video && video.loading ? '取流中…' : '▶ 试看'),
+                ),
+            ),
             h('div', { className: 'ytdlp-preview-main' },
               h('div', { className: 'ytdlp-preview-title' }, preview.title),
               h('div', { className: 'ytdlp-meta' }, [
@@ -677,6 +737,20 @@ window.__ModuleLoader__.load({
           h('span', { className: 'path', title: env ? env.outputDir : '' }, env ? env.outputDir : '读取中…'),
           h('button', { className: 'ytdlp-btn ghost', onClick: changeDir }, '更改'),
           h('button', { className: 'ytdlp-btn ghost', onClick: () => open('') }, '打开文件夹'),
+          h('div', { className: 'ytdlp-spacer' }),
+          h('span', { className: 'ytdlp-credit' },
+            '由 ',
+            h('a', {
+              href: (env && env.repo) || 'https://github.com/Raymond-Hear/dsh-video-downloader',
+              target: '_blank', rel: 'noreferrer', title: '在 GitHub 查看源码',
+            }, (env && env.author) || '聆风 Raymond'),
+            ' 开发'),
+          h('a', {
+            className: 'ytdlp-gh', style: { width: '24px', height: '24px' },
+            href: (env && env.repo) || 'https://github.com/Raymond-Hear/dsh-video-downloader',
+            target: '_blank', rel: 'noreferrer', title: 'GitHub 仓库',
+          }, h(GithubIcon)),
+          h('span', { className: 'ytdlp-ver', title: '插件版本' }, `v${(env && env.version) || '—'}`),
         )
 
         return h('div', { className: 'ytdlp-root' },
