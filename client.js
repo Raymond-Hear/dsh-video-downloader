@@ -858,6 +858,12 @@ window.__ModuleLoader__.load({
           h('button', { className: 'ytdlp-btn ghost', onClick: changeDir }, '更改'),
           h('button', { className: 'ytdlp-btn ghost', onClick: () => open('') }, '打开文件夹'),
           h('div', { className: 'ytdlp-spacer' }),
+          h('a', {
+            href: `${(env && env.repo) || 'https://github.com/Raymond-Hear/dsh-video-downloader'}#disclaimer`,
+            target: '_blank', rel: 'noreferrer',
+            style: { color: 'inherit', textDecoration: 'none', opacity: .75 },
+            title: '仅供个人学习与备份使用，请遵守法律与平台条款',
+          }, '免责声明'),
           h('span', { className: 'ytdlp-credit' },
             '由 ',
             h('a', {

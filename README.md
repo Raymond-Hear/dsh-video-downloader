@@ -5,6 +5,8 @@
 支持 YouTube、哔哩哔哩、X、TikTok 等上千个站点——它本质上是一个 yt-dlp 的图形前端。
 <img width="1920" height="1078" alt="image" src="https://github.com/user-attachments/assets/30ca6c0b-832a-44c4-8a16-108a27d755f5" />
 
+> **仅供个人学习与备份使用。** 本项目不托管、不分发任何内容，所有下载都在你自己的电脑上、通过你自己安装的 yt-dlp 完成；请遵守你所在地区的法律和所用平台的服务条款。详见[免责声明](#disclaimer)。
+
 
 ## 功能
 
@@ -234,10 +236,27 @@ git diff --cached --stat        # 看一眼这次改了哪些文件
 ## 已知限制
 
 - 部分站点会因 IP / 账号风控要求登录，配好 cookies.txt 基本能过。
-- 暂停只对「还没开始」的任务生效，已经在跑的 yt-dlp 只能取消。
 - 短时间内大量请求会被限流（HTTP 429），等几分钟再试。
 - 只在本机跑，没有账号体系，也不上传任何数据。
+
+<a id="disclaimer"></a>
+## 免责声明 / Disclaimer
+
+### 中文
+
+本项目是一个**本地图形界面 + 命令行封装**：它不托管、不缓存、不分发任何音视频内容，也不提供任何内容源。所有下载都发生在你自己的电脑上，由你自行安装的 [yt-dlp](https://github.com/yt-dlp/yt-dlp) 执行，请求直接发往对应网站。
+
+- **与平台无关**：本项目与 YouTube、哔哩哔哩、X、TikTok 等任何平台均无关联，未获其授权或背书。文中出现的名称和图标仅用于说明"支持哪些站点"，相关商标归各自所有者。
+- **责任在你**：下载行为可能受著作权法、平台服务条款以及你所在地区法律的约束。**是否下载、下载什么、下载后如何使用，完全由你自行决定并自行承担后果。** 请只下载你有权保存的内容（例如自己的作品、已获授权的素材，或法律允许的范围）。
+- **不提供规避手段**：项目不包含破解、去除 DRM、绕过付费墙或账号权限的功能。
+- **不承担赔偿责任**：因使用本项目产生的任何直接或间接损失、纠纷或账号风险，作者不承担责任。软件按 MIT 协议「按原样」提供，不附带任何明示或默示担保。
+- **权利人联系**：如果你是权利人，认为本项目本身（不包括用户下载的内容）侵犯了你的权益，请通过仓库的 GitHub Issues 联系，我会及时处理。
+
+### English (summary)
+
+This project is a local GUI wrapper around yt-dlp. It does not host, store, or distribute any media, and it is not affiliated with or endorsed by YouTube, Bilibili, X, TikTok, or any other platform; all names and icons are used only to indicate supported sites and belong to their owners. All downloads run on the user's own machine through the user's own yt-dlp installation. **Users are solely responsible** for complying with copyright law and each site's terms of service. The software is provided "as is" under the MIT license, without warranty of any kind, and the author accepts no liability for any loss or dispute arising from its use. Rights holders may contact the maintainer via GitHub Issues.
 
 ## License
 
 MIT
+
