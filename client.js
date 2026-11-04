@@ -862,8 +862,8 @@ window.__ModuleLoader__.load({
             href: `${(env && env.repo) || 'https://github.com/Raymond-Hear/dsh-video-downloader'}#disclaimer`,
             target: '_blank', rel: 'noreferrer',
             style: { color: 'inherit', textDecoration: 'none', opacity: .75 },
-            title: '我们不保存你的任何内容，也不经手你的文件；点开看完整说明',
-          }, '为你的隐私着想：我们不保存任何内容，下载直接到你电脑上'),
+            title: '点开看完整说明',
+          }, '隐私优先：下载全程在你本地，你的文件不会离开这台电脑'),
           h('span', { className: 'ytdlp-credit' },
             '由 ',
             h('a', {
