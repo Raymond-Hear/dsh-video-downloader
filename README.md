@@ -122,7 +122,7 @@ git clone https://github.com/Raymond-Hear/dsh-video-downloader.git
 - **检查更新**：点页面右下角的版本号（`v1.3.0`）。有新版本时它会变成 `v1.1.0 → v1.3.0`，点开是个弹窗：
   - 插件目录本身是 git 仓库（本地 clone / `link:` 安装）→ 直接「立即更新」，跑 `git pull --ff-only`；更新完刷新页面看界面变化，Host 侧改动需要重启 Harness。
   - Harness 把插件装进了 profile（副本）→ 插件自己没法替换文件，弹窗会给一句可以直接发给 Harness 的话，复制过去让它重装即可。
-- 版本号来自 GitHub 上的 `package.json`（jsdelivr 优先，raw / GitHub API 兜底），不依赖插件自己发起下载。
+- 版本号来自 GitHub 的 Release（不放 CDN 缓存，发版即可见），raw 与 jsdelivr 兜底 —— 不依赖插件自己发起下载。
 - **卸载**：插件管理器里移除这个 bundle。下载好的文件、以及 `%LOCALAPPDATA%\dsh-ytdlp\`（macOS / Linux 在 `~/.local/share/dsh-ytdlp/`）里的记录不会被删除。
 
 ## 依赖与本机环境
@@ -256,7 +256,7 @@ git diff --cached --stat        # 看一眼这次改了哪些文件
 | POST | `/ytdlp/api/install-ffmpeg` | 从 PyPI 的 `imageio-ffmpeg` 轮子取静态 ffmpeg，装进插件 `bin/` |
 | POST | `/ytdlp/api/open` | `{path, reveal}` 打开文件夹 / 定位文件 |
 | POST | `/ytdlp/api/recheck` | 重新探测命令 |
-| POST | `/ytdlp/api/update/check` | 比对远端最新版本（jsdelivr → raw → GitHub API） |
+| POST | `/ytdlp/api/update/check` | 比对远端最新版本（GitHub Release → raw → jsdelivr） |
 | POST | `/ytdlp/api/update/apply` | git 仓库安装时执行 `git pull --ff-only` |
 
 下载参数：`url`、`mode`（video/audio/subs/thumb）、`quality`、`subtitles`、`playlist`、`section`、`playlistItems`、`archive`、`proxy`、`limitRate`、`cookies`、`cookiesFile`。

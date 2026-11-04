@@ -507,11 +507,13 @@ async function installFfmpeg() {
 
 /* ------------------------------------------------------------------ update */
 
-// 版本号从远端读。jsdelivr 在国内一般能通，所以放第一个；GitHub 两个入口兜底。
+// 版本号从远端读。Release API 放第一：它不走 CDN 缓存，发版后立刻能查到。
+// jsdelivr 的分支内容有 12 小时缓存（加 ?t= 也绕不过），放最后兜底，
+// 否则刚发的版本会被误判成「已是最新」。
 const UPDATE_URLS = [
-  `https://cdn.jsdelivr.net/gh/Raymond-Hear/dsh-video-downloader@main/package.json?t=${Date.now()}`,
-  'https://raw.githubusercontent.com/Raymond-Hear/dsh-video-downloader/main/package.json',
   'https://api.github.com/repos/Raymond-Hear/dsh-video-downloader/releases/latest',
+  'https://raw.githubusercontent.com/Raymond-Hear/dsh-video-downloader/main/package.json',
+  'https://cdn.jsdelivr.net/gh/Raymond-Hear/dsh-video-downloader@main/package.json',
 ]
 
 function fetchJson(url, timeout = 8000) {
