@@ -10,7 +10,7 @@
 //   /ytdlp/api/cookies/* 检查、上传、清除 cookies.txt
 //   /ytdlp/api/open      在资源管理器里打开保存目录 / 定位文件
 import { spawn, spawnSync } from 'node:child_process'
-import { createReadStream, createWriteStream, existsSync, mkdirSync, readFileSync, readdirSync, renameSync, statSync, unlinkSync, writeFileSync } from 'node:fs'
+import { chmodSync, copyFileSync, createReadStream, createWriteStream, existsSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, statSync, unlinkSync, writeFileSync } from 'node:fs'
 import { get as httpsGet } from 'node:https'
 import { basename, dirname, extname, join } from 'node:path'
 import { homedir } from 'node:os'
@@ -26,12 +26,74 @@ const ASSET_DIR = join(PLUGIN_ROOT, 'assets')
 const ASSET_MIME = { '.webp': 'image/webp', '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.svg': 'image/svg+xml' }
 
 const BASE = '/ytdlp'
+const IS_WIN = process.platform === 'win32'
+const IS_MAC = process.platform === 'darwin'
 const STATE_DIR = join(process.env.LOCALAPPDATA || join(homedir(), '.local', 'share'), 'dsh-ytdlp')
 const STATE_FILE = join(STATE_DIR, 'state.json')
 const DEFAULT_OUTPUT = join(homedir(), 'Downloads', 'YT-DLP')
-// 插件自己下载的单文件版 yt-dlp（用户机器上什么都没有时用）
+// 插件自己装的 yt-dlp：先试单文件版（不依赖 Python），再试 pip 装进插件私有目录
 const BIN_DIR = join(STATE_DIR, 'bin')
-const MANAGED_EXE = join(BIN_DIR, 'yt-dlp.exe')
+const MANAGED_BIN = join(BIN_DIR, IS_WIN ? 'yt-dlp.exe' : 'yt-dlp')
+const MANAGED_PYLIB = join(BIN_DIR, 'pylib')
+// ffmpeg 放同一个目录：合并音视频 / 转 mp3 / 字幕转 srt 全靠它
+const MANAGED_FFMPEG = join(BIN_DIR, IS_WIN ? 'ffmpeg.exe' : 'ffmpeg')
+
+// GitHub 直连在国内经常 ETIMEDOUT，单文件版要从这几个加速入口挨个试
+function releaseAsset() {
+  if (IS_WIN) return process.arch === 'ia32' ? 'yt-dlp_x86.exe' : 'yt-dlp.exe'
+  if (IS_MAC) return 'yt-dlp_macos' // universal2，macOS 10.15+
+  if (process.arch === 'arm64') return 'yt-dlp_linux_aarch64'
+  if (process.arch === 'arm') return 'yt-dlp_linux_armv7l'
+  return 'yt-dlp_linux'
+}
+
+function releaseUrls(asset) {
+  const direct = `https://github.com/yt-dlp/yt-dlp/releases/latest/download/${asset}`
+  return [
+    direct,
+    `https://ghfast.top/${direct}`,
+    `https://gh-proxy.com/${direct}`,
+    `https://ghproxy.net/${direct}`,
+    `https://github.moeyy.xyz/${direct}`,
+  ]
+}
+
+// DSH 桌面版自带一套私有运行时（Node / pnpm / Python），装在 ~/.dsh/dsh-runtimes 下。
+// 它不进系统 PATH，所以「本机没装 Python」≠「没有 Python 可用」——这里直接去那些目录找。
+function bundledPythons() {
+  const base = join(homedir(), '.dsh', 'dsh-runtimes')
+  const roots = [join(base, 'dsh-primary-runtime')]
+  try {
+    for (const name of readdirSync(base)) roots.push(join(base, name))
+  } catch {}
+  const out = []
+  for (const root of roots) {
+    const py = join(root, 'dependencies', 'python')
+    out.push(...(IS_WIN ? [join(py, 'python.exe')] : [join(py, 'bin', 'python3'), join(py, 'bin', 'python')]))
+  }
+  return [...new Set(out)]
+}
+
+function pythonCandidates() {
+  const list = IS_WIN
+    ? [{ command: 'python', prefix: [] }, { command: 'py', prefix: ['-3'] }]
+    : [{ command: 'python3', prefix: [] }, { command: 'python', prefix: [] }]
+  for (const exe of bundledPythons()) list.push({ command: exe, prefix: [] })
+  return list
+}
+
+// 从 Finder / 桌面图标启动时拿不到 shell 的 PATH：/opt/homebrew/bin、~/.local/bin 都不在里面，
+// 于是 brew 装的 yt-dlp、ffmpeg、python3 全都会「找不到」。这里把常见位置补回去。
+function extraPathDirs() {
+  if (IS_WIN) return []
+  const dirs = ['/opt/homebrew/bin', '/opt/homebrew/sbin', '/usr/local/bin', '/opt/local/bin', join(homedir(), '.local', 'bin')]
+  try {
+    for (const name of readdirSync(join(homedir(), 'Library', 'Python'))) dirs.push(join(homedir(), 'Library', 'Python', name, 'bin'))
+  } catch {}
+  return dirs
+}
+
+const firstLine = (text) => String(text || '').split(/\r?\n/)[0].trim()
 
 // 版本号只有一个来源：package.json。读成函数而不是常量，
 // 这样改完版本号不必重启 Harness 才能看到。
@@ -45,18 +107,35 @@ function pluginVersion() {
 export const VERSION = pluginVersion()
 export const REPO_URL = 'https://github.com/Raymond-Hear/dsh-video-downloader'
 export const AUTHOR = '聆风 Raymond'
+// 署名只指到个人主页，不要指到某个项目
+export const AUTHOR_URL = 'https://github.com/Raymond-Hear'
 
 // 优先找独立可执行文件；没有就用 Python 模块方式（很多机器只装了 pip 版）。
-const CANDIDATES = [
-  { command: 'yt-dlp', prefix: [] },
-  { command: 'yt-dlp.exe', prefix: [] },
-  { command: 'python', prefix: ['-m', 'yt_dlp'] },
-  { command: 'py', prefix: ['-m', 'yt_dlp'] },
-  { command: 'python3', prefix: ['-m', 'yt_dlp'] },
-]
+// mac 上没有 `python` 这个名字（只有 python3），所以 python3 排在前面。
+const CANDIDATES = IS_WIN
+  ? [
+      { command: 'yt-dlp', prefix: [] },
+      { command: 'yt-dlp.exe', prefix: [] },
+      { command: 'python', prefix: ['-m', 'yt_dlp'] },
+      { command: 'py', prefix: ['-3', '-m', 'yt_dlp'] },
+    ]
+  : [
+      { command: 'yt-dlp', prefix: [] },
+      { command: 'python3', prefix: ['-m', 'yt_dlp'] },
+      { command: 'python', prefix: ['-m', 'yt_dlp'] },
+    ]
 
-// Python 版输出默认走系统代码页，中文会变乱码；强制 UTF-8
-const CHILD_ENV = { ...process.env, PYTHONIOENCODING: 'utf-8', PYTHONUTF8: '1' }
+// Python 版输出默认走系统代码页，中文会变乱码；强制 UTF-8。
+// 非 Windows 上顺手把 brew / pip --user 的目录补进 PATH（图形界面启动时原本没有）。
+const CHILD_ENV = {
+  ...process.env,
+  ...(IS_WIN ? {} : { PATH: [process.env.PATH || '', ...extraPathDirs()].filter(Boolean).join(':') }),
+  PYTHONIOENCODING: 'utf-8',
+  PYTHONUTF8: '1',
+}
+
+// 插件用 pip 装到自己目录里的 yt-dlp：靠 PYTHONPATH 找，不污染系统 Python
+const PY_ENV = { ...CHILD_ENV, PYTHONPATH: MANAGED_PYLIB }
 
 const DEFAULT_SETTINGS = {
   mode: 'video',
@@ -73,6 +152,13 @@ const DEFAULT_SETTINGS = {
 
 function statFileSize(file) {
   try { return statSync(file).size } catch { return 0 }
+}
+
+// yt-dlp 的落盘文件名是「视频标题 [视频id].ext」，用它反推标题。
+// 队列里显示名字比显示一整条链接有用得多：能搜、能对上号。
+function titleFromFile(file) {
+  const base = basename(String(file || '')).replace(/\.[^.]+$/, '')
+  return base.replace(/\s*\[[^\[\]]+\]\s*$/, '').trim() || base
 }
 
 let state = null
@@ -107,7 +193,7 @@ function saveState() {
 }
 
 function outputDir() {
-  const dir = state.outputDir || DEFAULT_OUTPUT
+  const dir = (state && state.outputDir) || DEFAULT_OUTPUT
   try {
     mkdirSync(dir, { recursive: true })
   } catch {}
@@ -116,9 +202,9 @@ function outputDir() {
 
 /* ------------------------------------------------------------------- tools */
 
-function runSync(command, args, timeout = 20000) {
+function runSync(command, args, timeout = 20000, env = CHILD_ENV) {
   try {
-    const r = spawnSync(command, args, { encoding: 'utf8', timeout, windowsHide: true })
+    const r = spawnSync(command, args, { encoding: 'utf8', timeout, windowsHide: true, env })
     if (r.error || r.status !== 0) return null
     return (r.stdout || '').trim()
   } catch {
@@ -126,86 +212,410 @@ function runSync(command, args, timeout = 20000) {
   }
 }
 
+function cacheTool(tool) {
+  toolCache = tool
+  return tool
+}
+
+// 老版本在 mac 上把 yt-dlp 存成了 bin/yt-dlp.exe（内容其实是 mach-o），认它并改回正名，
+// 免得升级后反而「找不到 yt-dlp」了
+function migrateLegacyBinary() {
+  if (IS_WIN) return
+  const legacy = join(BIN_DIR, 'yt-dlp.exe')
+  if (!existsSync(legacy) || existsSync(MANAGED_BIN)) return
+  if (!runSync(legacy, ['--version'], 30000)) return
+  try {
+    renameSync(legacy, MANAGED_BIN)
+    makeExecutable(MANAGED_BIN)
+  } catch {}
+}
+
 function detectTool(force = false) {
   if (toolCache && !force) return toolCache
-  const candidates = []
-  if (existsSync(MANAGED_EXE)) candidates.push({ command: MANAGED_EXE, prefix: [] })
-  candidates.push(...CANDIDATES)
-  for (const candidate of candidates) {
-    const version = runSync(candidate.command, [...candidate.prefix, '--version'])
-    if (version) {
-      toolCache = { command: candidate.command, prefix: candidate.prefix, version: version.split(/\r?\n/)[0] }
-      return toolCache
+  toolCache = null
+  migrateLegacyBinary()
+
+  // 1) 插件自己装的单文件版：不依赖 Python，最稳
+  if (existsSync(MANAGED_BIN)) {
+    const version = runSync(MANAGED_BIN, ['--version'], 60000)
+    if (version) return cacheTool({ command: MANAGED_BIN, prefix: [], env: CHILD_ENV, managed: true, method: 'binary', version: firstLine(version) })
+  }
+
+  // 2) 插件用 pip 装进自己目录的（--target，没动系统 Python）
+  if (existsSync(MANAGED_PYLIB)) {
+    for (const py of pythonCandidates()) {
+      const version = runSync(py.command, [...py.prefix, '-m', 'yt_dlp', '--version'], 60000, PY_ENV)
+      if (version) return cacheTool({ command: py.command, prefix: [...py.prefix, '-m', 'yt_dlp'], env: PY_ENV, managed: true, method: 'pip', version: firstLine(version) })
     }
   }
-  toolCache = null
+
+  // 3) PATH 上的（含 brew、pip 装的 python -m yt_dlp）
+  for (const candidate of CANDIDATES) {
+    const version = runSync(candidate.command, [...candidate.prefix, '--version'])
+    if (version) return cacheTool({ command: candidate.command, prefix: candidate.prefix, env: CHILD_ENV, managed: false, method: 'path', version: firstLine(version) })
+  }
   return null
 }
 
+// ffmpeg 先看插件自己的 bin 目录：用户/我们把它放这儿时，不依赖 PATH 也能用
+//（mac 从 Finder 启动拿不到 shell PATH，PATH 里装的东西经常「找不到」）
 function detectFfmpeg(force = false) {
   if (ffmpegCache !== null && !force) return ffmpegCache
-  const out = runSync('ffmpeg', ['-version'])
-  ffmpegCache = out ? (out.split(/\r?\n/)[0] || 'ffmpeg') : false
+  const candidates = [MANAGED_FFMPEG, 'ffmpeg']
+  for (const command of candidates) {
+    const out = runSync(command, ['-version'], 20000)
+    if (!out) continue
+    ffmpegCache = { command, version: firstLine(out) || 'ffmpeg', managed: command === MANAGED_FFMPEG }
+    return ffmpegCache
+  }
+  ffmpegCache = false
   return ffmpegCache
+}
+
+// 给 yt-dlp 指路：插件自己装的 ffmpeg 不在 PATH 里
+function ffmpegArgs(ffmpeg = detectFfmpeg()) {
+  return ffmpeg && ffmpeg.managed ? ['--ffmpeg-location', BIN_DIR] : []
 }
 
 function requireTool() {
   const tool = detectTool()
   if (!tool) {
-    throw Object.assign(new Error('没有找到 yt-dlp。点「一键安装 yt-dlp」，或者自己装：pip install -U yt-dlp'), { status: 503 })
+    const hint = IS_MAC ? '；也可以在终端执行 brew install yt-dlp' : ''
+    throw Object.assign(new Error(`没有找到 yt-dlp。点「一键安装 yt-dlp」重试${hint}`), { status: 503 })
   }
   return tool
 }
 
 /* ------------------------------------------------------------- tool install */
-// 官方单文件版（不需要 Python），装到插件自己的 bin 目录里
-const DOWNLOAD_URL = 'https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp.exe'
+// 官方单文件版（PyInstaller 打的，不需要 Python），装到插件自己的 bin 目录里。
+// 注意 asset 名字跟平台强相关：Windows 用 .exe，mac 是 yt-dlp_macos（universal2）。
+const PIP_INDEXES = ['https://pypi.tuna.tsinghua.edu.cn/simple', 'https://mirrors.aliyun.com/pypi/simple', '']
 
-function downloadTo(url, target, depth = 0) {
+function makeExecutable(file) {
+  if (IS_WIN) return
+  try { chmodSync(file, 0o755) } catch {}
+  // 被 Gatekeeper 打了隔离标记的二进制会直接「killed」；Node 下载的一般没有，但清一下更保险
+  if (IS_MAC) runSync('xattr', ['-d', 'com.apple.quarantine', file], 10000)
+}
+
+function downloadTo(url, target, { timeout = 180000, idle = 15000 } = {}) {
   return new Promise((resolve, reject) => {
-    if (depth > 6) return reject(new Error('重定向太多'))
-    httpsGet(url, { headers: { 'user-agent': 'dsh-video-downloader' } }, (res) => {
-      const status = res.statusCode || 0
-      if (status >= 300 && status < 400 && res.headers.location) {
-        res.resume()
-        return downloadTo(new URL(res.headers.location, url).toString(), target, depth + 1)
-      }
-      if (status !== 200) {
-        res.resume()
-        return reject(new Error(`下载失败：HTTP ${status}`))
-      }
-      mkdirSync(dirname(target), { recursive: true })
-      const temp = `${target}.part`
-      const out = createWriteStream(temp)
-      res.pipe(out)
-      out.on('finish', () => {
-        try { renameSync(temp, target); resolve() } catch (err) { reject(err) }
+    let settled = false
+    const settle = (fn, value) => {
+      if (settled) return
+      settled = true
+      fn(value)
+    }
+    const attempt = (current, depth) => {
+      if (depth > 6) return settle(reject, new Error('重定向太多'))
+      const req = httpsGet(current, { headers: { 'user-agent': 'dsh-video-downloader' } }, (res) => {
+        const status = res.statusCode || 0
+        if (status >= 300 && status < 400 && res.headers.location) {
+          res.resume()
+          return attempt(new URL(res.headers.location, current).toString(), depth + 1)
+        }
+        if (status !== 200) {
+          res.resume()
+          return settle(reject, new Error(`下载失败：HTTP ${status}`))
+        }
+        mkdirSync(dirname(target), { recursive: true })
+        const temp = `${target}.part`
+        const out = createWriteStream(temp)
+        res.pipe(out)
+        out.on('finish', () => {
+          try {
+            // 有些镜像会返回 200 的网页，拿到手只有几十 KB
+            if (statFileSize(temp) < 1024 * 1024) throw new Error('下载到的文件不完整（可能被镜像换成了网页）')
+            renameSync(temp, target)
+            settle(resolve)
+          } catch (err) {
+            try { unlinkSync(temp) } catch {}
+            settle(reject, err)
+          }
+        })
+        out.on('error', (err) => {
+          try { unlinkSync(temp) } catch {}
+          settle(reject, err)
+        })
+        res.on('error', (err) => {
+          try { unlinkSync(temp) } catch {}
+          settle(reject, err)
+        })
       })
-      out.on('error', reject)
-    }).on('error', reject)
+      // 直连 GitHub 在国内常见的是「连上了但一直不动」，所以要有空闲超时
+      req.setTimeout(idle, () => req.destroy(new Error('连接超时')))
+      const guard = setTimeout(() => req.destroy(new Error('下载超时')), timeout)
+      req.on('error', (err) => { clearTimeout(guard); settle(reject, err) })
+      req.on('close', () => clearTimeout(guard))
+    }
+    attempt(url, 0)
   })
 }
 
+function manualHint() {
+  if (IS_MAC) {
+    return `可以二选一：① 打开「终端」执行 brew install yt-dlp；② 手动下载 https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp_macos ，放到 ${MANAGED_BIN}，再执行 chmod +x "${MANAGED_BIN}"`
+  }
+  if (IS_WIN) {
+    return `可以手动下载 https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp.exe 放到 ${MANAGED_BIN}，或装 Python 后执行 python -m pip install -U yt-dlp`
+  }
+  return `可以执行 python3 -m pip install -U yt-dlp，或手动下载 https://github.com/yt-dlp/yt-dlp/releases/latest/download/${releaseAsset()} 放到 ${MANAGED_BIN} 并 chmod +x`
+}
+
 async function installTool() {
-  // 1) 官方单文件版：不依赖 Python，最省事
-  try {
-    await downloadTo(DOWNLOAD_URL, MANAGED_EXE)
-    const version = runSync(MANAGED_EXE, ['--version'], 60000)
-    if (version) {
-      detectTool(true)
-      return { ok: true, method: 'download', version, message: `已装好 yt-dlp ${version}（放在 ${MANAGED_EXE}）` }
+  // macOS 10.15 以下是另一份二进制（legacy），先试通用版再试它
+  const assets = IS_MAC ? ['yt-dlp_macos', 'yt-dlp_macos_legacy'] : [releaseAsset()]
+  const errors = []
+
+  // 1) 单文件版：不依赖 Python，最省事。直连不通就换加速镜像。
+  for (const asset of assets) {
+    for (const url of releaseUrls(asset)) {
+      try {
+        try { if (existsSync(MANAGED_BIN)) unlinkSync(MANAGED_BIN) } catch {}
+        await downloadTo(url, MANAGED_BIN)
+        makeExecutable(MANAGED_BIN)
+        const version = runSync(MANAGED_BIN, ['--version'], 60000)
+        if (!version) {
+          // 文件已经下来了却跑不起来：换镜像没意义（要么系统拦截，要么系统版本不匹配），
+          // 直接换下一个资产 / 进 pip 兜底。
+          throw Object.assign(new Error('下载完成但跑不起来（可能被系统拦截或系统版本太旧）'), { fatal: true })
+        }
+        detectTool(true)
+        return { ok: true, method: 'download', version: firstLine(version), message: `已装好 yt-dlp ${firstLine(version)}（放在 ${MANAGED_BIN}）` }
+      } catch (err) {
+        const host = (() => { try { return new URL(url).host } catch { return url } })()
+        errors.push(`${host}：${err.message}`)
+        try { if (existsSync(MANAGED_BIN)) unlinkSync(MANAGED_BIN) } catch {}
+        if (err.fatal) break
+      }
     }
-    throw new Error('下载完成但跑不起来')
-  } catch (downloadError) {
-    // 2) 退回到 pip（需要本机有 Python）
-    const hasPython = Boolean(runSync('python', ['--version']))
-    if (hasPython) {
-      const out = runSync('python', ['-m', 'pip', 'install', '-U', 'yt-dlp'], 300000)
+  }
+
+  // 2) 退回 pip：用系统 Python，或 DSH 自带的那个（后者不在 PATH 里，但基本一定有）。
+  //    装到插件私有目录（--target），不动用户的 Python 环境。
+  for (const py of pythonCandidates()) {
+    if (!runSync(py.command, [...py.prefix, '--version'])) continue
+    for (const index of PIP_INDEXES) {
+      const args = [...py.prefix, '-m', 'pip', 'install', '--target', MANAGED_PYLIB, '--upgrade',
+        '--disable-pip-version-check', '--no-input', '--retries', '0', '--timeout', '20', 'yt-dlp']
+      if (index) args.push('-i', index)
+      runSync(py.command, args, 300000, PY_ENV)
       const tool = detectTool(true)
-      if (tool) return { ok: true, method: 'pip', version: tool.version, message: `已用 pip 装好 yt-dlp ${tool.version}` }
-      return { ok: false, method: 'pip', message: `自动安装失败（${downloadError.message}），pip 也没成功${out ? '' : '：可能是网络问题'}。可以手动装：pip install -U yt-dlp` }
+      if (tool) {
+        return { ok: true, method: 'pip', version: tool.version, message: `已装好 yt-dlp ${tool.version}（pip，装在 ${MANAGED_PYLIB}）` }
+      }
+      errors.push(index ? 'PyPI 镜像：pip install 没成功' : 'PyPI：pip install 没成功')
     }
-    return { ok: false, method: 'none', message: `自动安装失败：${downloadError.message}。本机也没有 Python，请手动下载 yt-dlp.exe 放到 ${BIN_DIR}，或安装 Python 后执行 pip install -U yt-dlp` }
+  }
+
+  return { ok: false, method: 'none', message: `自动安装没成功（${errors.slice(0, 3).join('；')}）。${manualHint()}` }
+}
+
+/* --------------------------------------------------------------- ffmpeg 安装 */
+// ffmpeg 才是难装的那个：mac 上没有 brew、没有 sudo、/usr/local/bin 甚至不存在，
+// Windows 上也不一定有 winget。但 PyPI 的 imageio-ffmpeg 轮子里就塞着各平台的
+// 静态 ffmpeg —— 用已有的 pip 通道（含国内镜像）下下来解压即可，不需要管理员权限。
+function walkFiles(dir, depth = 0) {
+  if (depth > 4) return []
+  let entries = []
+  try { entries = readdirSync(dir, { withFileTypes: true }) } catch { return [] }
+  const out = []
+  for (const entry of entries) {
+    const full = join(dir, entry.name)
+    if (entry.isDirectory()) out.push(...walkFiles(full, depth + 1))
+    else out.push(full)
+  }
+  return out
+}
+
+function unzipWith(py, wheel, target) {
+  mkdirSync(target, { recursive: true })
+  const attempts = [
+    [py.command, [...py.prefix, '-m', 'zipfile', '-e', wheel, target]],
+    ['tar', ['-xf', wheel, '-C', target]],
+    ['unzip', ['-oq', wheel, '-d', target]],
+  ]
+  for (const [command, args] of attempts) {
+    try {
+      const r = spawnSync(command, args, { encoding: 'utf8', timeout: 120000, windowsHide: true, env: CHILD_ENV })
+      if (r.status === 0) return true
+    } catch {}
+  }
+  return false
+}
+
+function ffmpegManualHint() {
+  if (IS_MAC) return `也可以自己把 ffmpeg 二进制放到 ${MANAGED_FFMPEG} 再 chmod +x；有 Homebrew 的话 brew install ffmpeg 也行`
+  if (IS_WIN) return `也可以 winget install ffmpeg，或把 ffmpeg.exe 放到 ${MANAGED_FFMPEG}`
+  return `也可以用包管理器装 ffmpeg，或把二进制放到 ${MANAGED_FFMPEG}`
+}
+
+async function installFfmpeg() {
+  const tmp = join(BIN_DIR, '.ffmpeg-tmp')
+  const errors = []
+  const reset = () => {
+    try { rmSync(tmp, { recursive: true, force: true }) } catch {}
+    mkdirSync(tmp, { recursive: true })
+  }
+  reset()
+
+  for (const py of pythonCandidates()) {
+    if (!runSync(py.command, [...py.prefix, '--version'])) continue
+    for (const index of PIP_INDEXES) {
+      reset()
+      const args = [...py.prefix, '-m', 'pip', 'download', 'imageio-ffmpeg', '--no-deps',
+        '--only-binary', ':all:', '--dest', tmp,
+        '--disable-pip-version-check', '--no-input', '--retries', '0', '--timeout', '20']
+      if (index) args.push('-i', index)
+      runSync(py.command, args, 300000, PY_ENV)
+
+      const wheel = walkFiles(tmp).find((file) => /imageio[_-]ffmpeg.*\.whl$/i.test(file))
+      if (!wheel) {
+        errors.push(index ? '镜像没下发 whl' : 'PyPI 没下发 whl')
+        continue
+      }
+
+      const unpacked = join(tmp, 'unpacked')
+      if (!unzipWith(py, wheel, unpacked)) {
+        errors.push('解压失败')
+        continue
+      }
+
+      const binary = walkFiles(unpacked).find((file) => /[\\/]binaries[\\/]ffmpeg[^\\/]*$/i.test(file))
+      if (!binary) {
+        errors.push('轮子里没找到 ffmpeg 二进制')
+        continue
+      }
+
+      mkdirSync(BIN_DIR, { recursive: true })
+      copyFileSync(binary, MANAGED_FFMPEG)
+      makeExecutable(MANAGED_FFMPEG)
+      const version = runSync(MANAGED_FFMPEG, ['-version'], 60000)
+      if (!version) {
+        errors.push('装上了但跑不起来（可能被系统拦截）')
+        continue
+      }
+      try { rmSync(tmp, { recursive: true, force: true }) } catch {}
+      detectFfmpeg(true)
+      return { ok: true, version: firstLine(version), message: `ffmpeg 已装好：${firstLine(version)}（放在 ${MANAGED_FFMPEG}）` }
+    }
+  }
+
+  try { rmSync(tmp, { recursive: true, force: true }) } catch {}
+  return { ok: false, message: `ffmpeg 自动安装没成功（${errors.slice(0, 2).join('；')}）。${ffmpegManualHint()}` }
+}
+
+/* ------------------------------------------------------------------ update */
+
+// 版本号从远端读。jsdelivr 在国内一般能通，所以放第一个；GitHub 两个入口兜底。
+const UPDATE_URLS = [
+  `https://cdn.jsdelivr.net/gh/Raymond-Hear/dsh-video-downloader@main/package.json?t=${Date.now()}`,
+  'https://raw.githubusercontent.com/Raymond-Hear/dsh-video-downloader/main/package.json',
+  'https://api.github.com/repos/Raymond-Hear/dsh-video-downloader/releases/latest',
+]
+
+function fetchJson(url, timeout = 8000) {
+  return new Promise((resolve, reject) => {
+    const req = httpsGet(url, {
+      headers: { 'user-agent': 'dsh-video-downloader', accept: 'application/json' },
+    }, (res) => {
+      const status = res.statusCode || 0
+      if (status >= 300 && status < 400 && res.headers.location) {
+        res.resume()
+        return resolve(fetchJson(new URL(res.headers.location, url).toString(), timeout))
+      }
+      if (status !== 200) {
+        res.resume()
+        return reject(new Error(`HTTP ${status}`))
+      }
+      let body = ''
+      res.setEncoding('utf8')
+      res.on('data', (chunk) => {
+        body += chunk
+        if (body.length > 2 * 1024 * 1024) req.destroy(new Error('返回内容太大'))
+      })
+      res.on('end', () => {
+        try { resolve(JSON.parse(body)) } catch { reject(new Error('返回的不是 JSON')) }
+      })
+      res.on('error', reject)
+    })
+    req.setTimeout(timeout, () => req.destroy(new Error('连接超时')))
+    req.on('error', reject)
+  })
+}
+
+// 只比较数字段：1.10.0 > 1.9.0
+function compareVersion(a, b) {
+  const pa = String(a).replace(/^v/i, '').split(/[.\-+]/)
+  const pb = String(b).replace(/^v/i, '').split(/[.\-+]/)
+  for (let i = 0; i < Math.max(pa.length, pb.length); i += 1) {
+    const x = Number(pa[i]) || 0
+    const y = Number(pb[i]) || 0
+    if (x !== y) return x > y ? 1 : -1
+  }
+  return 0
+}
+
+// 只有「插件目录本身是个 git 仓库」时才能自己 pull；其他安装方式（DSH 从 git / npm 装到
+// profile 里）得让 Harness 重新装一遍，所以给一句可以直接发给它的话。
+function canGitPull() {
+  return existsSync(join(PLUGIN_ROOT, '.git'))
+}
+
+async function checkUpdate() {
+  const current = VERSION
+  const failures = []
+  for (const url of UPDATE_URLS) {
+    const host = (() => { try { return new URL(url).host } catch { return url } })()
+    try {
+      const data = await fetchJson(url)
+      const latest = String(data.version || data.tag_name || '').trim().replace(/^v/i, '')
+      if (!/^\d+\.\d+\.\d+/.test(latest)) throw new Error('没读到版本号')
+      return {
+        ok: true, current, latest,
+        hasUpdate: compareVersion(latest, current) > 0,
+        canPull: canGitPull(),
+        source: host,
+        repo: REPO_URL,
+        releases: `${REPO_URL}/releases`,
+        error: '',
+      }
+    } catch (err) {
+      failures.push(`${host}：${err.message}`)
+    }
+  }
+  return {
+    ok: false, current, latest: '', hasUpdate: false,
+    canPull: canGitPull(), source: '', repo: REPO_URL, releases: `${REPO_URL}/releases`,
+    error: `检查更新失败（${failures.slice(0, 2).join('；')}）`,
+  }
+}
+
+function applyUpdate() {
+  if (!canGitPull()) {
+    return {
+      ok: false, canPull: false,
+      message: '这个安装方式不能自己更新（插件是 Harness 装进 profile 的副本）。把下面这句发给 Harness，它会重新拉取并替换成最新版。',
+    }
+  }
+  try {
+    const r = spawnSync('git', ['-C', PLUGIN_ROOT, 'pull', '--ff-only'], {
+      encoding: 'utf8', timeout: 120000, windowsHide: true, env: CHILD_ENV,
+    })
+    const text = `${r.stdout || ''}${r.stderr || ''}`.trim()
+    const last = text.split(/\r?\n/).map((line) => line.trim()).filter(Boolean).pop() || ''
+    if (r.status !== 0) {
+      return {
+        ok: false, canPull: true,
+        message: `git pull 没成功${last ? `：${last}` : ''}。本地有改动时先提交或还原；也可以让 Harness 重新装一遍。`,
+      }
+    }
+    return {
+      ok: true, canPull: true,
+      message: `更新完成${last ? `：${last}` : ''}。刷新页面看界面变化；Host 侧的改动用重启 Harness 才会生效。`,
+    }
+  } catch (err) {
+    return { ok: false, canPull: true, message: String(err && err.message ? err.message : err) }
   }
 }
 
@@ -331,6 +741,10 @@ function friendlyError(raw) {
   if (/Requested format is not available/i.test(text)) {
     return '这个清晰度没有可用格式，换一个（比如「最佳画质」）再试。'
   }
+  if (/ffmpeg (?:is )?not installed|ffmpeg not found|You have requested merging/i.test(text)) {
+    const how = IS_MAC ? '终端执行 brew install ffmpeg' : IS_WIN ? '执行 winget install ffmpeg' : '用包管理器装 ffmpeg'
+    return `这个画质要合并音视频（或转 mp3 / 转封面），需要 ffmpeg：${how}，装完点右上角「重新检测」。`
+  }
   if (/is not a valid URL|Unsupported URL/i.test(text)) {
     return '这个链接 yt-dlp 不认，检查一下是不是完整的视频地址。'
   }
@@ -392,7 +806,7 @@ function concurrency() {
   return Math.max(1, Math.min(3, Math.round(n)))
 }
 
-function buildArgs(job) {
+function buildArgs(job, ffmpeg = detectFfmpeg()) {
   const args = [
     '--color', 'never',
     '--newline',
@@ -409,17 +823,34 @@ function buildArgs(job) {
   if (job.archive) args.push('--download-archive', join(STATE_DIR, 'archive.txt'))
   if (job.section) args.push('--download-sections', `*${job.section}`, '--force-keyframes-at-cuts')
 
+  // 没有 ffmpeg 时不能硬上：合并、转 mp3、字幕转 srt / 内嵌、封面转 jpg 全都要它。
+  // 降级到「能下下来的形态」，并在任务里写清楚降级了什么，别让用户对着一堆失败重试。
+  args.push(...ffmpegArgs(ffmpeg))
+
   if (job.mode === 'subs') {
-    args.push('--skip-download', '--write-subs', '--write-auto-subs', '--sub-langs', SUB_LANGS, '--convert-subs', 'srt')
+    args.push('--skip-download', '--write-subs', '--write-auto-subs', '--sub-langs', SUB_LANGS)
+    if (ffmpeg) args.push('--convert-subs', 'srt')
+    else job.note = '没有 ffmpeg：字幕保留原始 vtt，没转 srt'
   } else if (job.mode === 'thumb') {
-    args.push('--skip-download', '--write-thumbnail', '--convert-thumbnails', 'jpg')
+    args.push('--skip-download', '--write-thumbnail')
+    if (ffmpeg) args.push('--convert-thumbnails', 'jpg')
+    else job.note = '没有 ffmpeg：封面保留原始 webp/png'
   } else if (job.mode === 'audio') {
-    args.push('-f', 'ba[acodec^=mp4a]/ba/b', '-x', '--audio-format', 'mp3', '--audio-quality', '0')
+    args.push('-f', 'ba[acodec^=mp4a]/ba/b')
+    if (ffmpeg) args.push('-x', '--audio-format', 'mp3', '--audio-quality', '0')
+    else job.note = '没有 ffmpeg：音频保留原始格式（m4a / webm），没转 mp3'
   } else {
     const height = Number(job.quality) || 0
-    args.push('-f', height ? `bv*[height<=${height}]+ba/b[height<=${height}]/b` : 'bv*+ba/b')
-    args.push('--merge-output-format', 'mp4')
-    if (job.subtitles) args.push('--write-subs', '--write-auto-subs', '--sub-langs', SUB_LANGS, '--embed-subs')
+    if (ffmpeg) {
+      args.push('-f', height ? `bv*[height<=${height}]+ba/b[height<=${height}]/b` : 'bv*+ba/b')
+      args.push('--merge-output-format', 'mp4')
+    } else {
+      // 没有 ffmpeg 就合不了音视频流，只能挑一条已经合并好的单文件（一般到 720p）
+      args.push('-f', height ? `b[height<=${height}][ext=mp4]/b[height<=${height}]/b` : 'b[ext=mp4]/b')
+      job.note = '没有 ffmpeg：改用单文件画质（通常到 720p），装好 ffmpeg 才能合并高清'
+    }
+    if (job.subtitles && ffmpeg) args.push('--write-subs', '--write-auto-subs', '--sub-langs', SUB_LANGS, '--embed-subs')
+    else if (job.subtitles) job.note = `${job.note ? `${job.note}；` : ''}字幕也没能内嵌`
   }
   args.push('--concurrent-fragments', '4')
   args.push(job.url)
@@ -434,12 +865,20 @@ const ALREADY = /^\[download\]\s+(.+?)\s+has already been downloaded/
 const WRITTEN = /^\[info\]\s+Writing .+? to:\s*(.+)$/
 
 function runJob(job) {
-  const tool = toolCache
+  const tool = toolCache || detectTool()
   return new Promise((resolve) => {
+    if (!tool) {
+      job.status = 'error'
+      job.error = '没有找到 yt-dlp，先点页面上的「一键安装 yt-dlp」'
+      job.finishedAt = new Date().toISOString()
+      remember(job)
+      jobs.delete(job.id)
+      return resolve()
+    }
     const args = [...tool.prefix, ...buildArgs(job)]
     let child
     try {
-      child = spawn(tool.command, args, { windowsHide: true, env: CHILD_ENV, stdio: ['ignore', 'pipe', 'pipe'] })
+      child = spawn(tool.command, args, { windowsHide: true, env: tool.env || CHILD_ENV, stdio: ['ignore', 'pipe', 'pipe'] })
     } catch (err) {
       job.status = 'error'
       job.error = String(err && err.message ? err.message : err)
@@ -472,6 +911,8 @@ function runJob(job) {
         const d = DESTINATION.exec(line) || MERGED.exec(line) || ALREADY.exec(line) || WRITTEN.exec(line)
         if (d && d[1]) {
           job.file = d[1].trim()
+          // 下载一开始就能从落盘文件名拿到视频名：队列里显示标题而不是一长串链接
+          if (!job.title) job.title = titleFromFile(job.file)
           continue
         }
         if (/^ERROR:/i.test(line)) errors = line.replace(/^ERROR:\s*/i, '')
@@ -531,6 +972,7 @@ function runJob(job) {
         if (removed > 0) job.note = `已内嵌字幕，清掉 ${removed} 个字幕散文件`
       }
       if (job.status === 'done') job.files = collectArtifacts(job.file)
+      if (!job.title && job.file) job.title = titleFromFile(job.file)
       job.finishedAt = new Date().toISOString()
       remember(job)
       jobs.delete(job.id)
@@ -569,7 +1011,7 @@ function probe(rawUrl, cookieOpts = {}) {
     args.push(rawUrl)
     let child
     try {
-      child = spawn(tool.command, args, { windowsHide: true, env: CHILD_ENV, stdio: ['ignore', 'pipe', 'pipe'] })
+      child = spawn(tool.command, args, { windowsHide: true, env: tool.env || CHILD_ENV, stdio: ['ignore', 'pipe', 'pipe'] })
     } catch (err) {
       return reject(err)
     }
@@ -631,7 +1073,7 @@ function previewSource(rawUrl, opts = {}) {
     args.push(rawUrl)
     let child
     try {
-      child = spawn(tool.command, args, { windowsHide: true, env: CHILD_ENV, stdio: ['ignore', 'pipe', 'pipe'] })
+      child = spawn(tool.command, args, { windowsHide: true, env: tool.env || CHILD_ENV, stdio: ['ignore', 'pipe', 'pipe'] })
     } catch (err) {
       return reject(err)
     }
@@ -923,8 +1365,9 @@ function envPayload() {
     version: pluginVersion(),
     repo: REPO_URL,
     author: AUTHOR,
-    tool: tool ? { ok: true, version: tool.version, command: [tool.command, ...tool.prefix].join(' '), managed: tool.command === MANAGED_EXE } : { ok: false, version: '', command: '', managed: false },
-    ffmpeg: ffmpeg ? { ok: true, version: ffmpeg } : { ok: false, version: '' },
+    authorUrl: AUTHOR_URL,
+    tool: tool ? { ok: true, version: tool.version, command: [tool.command, ...tool.prefix].join(' '), managed: Boolean(tool.managed), method: tool.method || '' } : { ok: false, version: '', command: '', managed: false, method: '' },
+    ffmpeg: ffmpeg ? { ok: true, version: ffmpeg.version, managed: Boolean(ffmpeg.managed), command: ffmpeg.command } : { ok: false, version: '', managed: false, command: '' },
     outputDir: outputDir(),
     defaults: state.defaults,
     queue: { paused, running: running.size, queued: queue.length, concurrency: concurrency() },
@@ -1245,6 +1688,15 @@ export function apply(ctx) {
             const result = await installTool()
             return sendJson(res, 200, result)
           }
+          if (rest === '/api/install-ffmpeg' && req.method === 'POST') {
+            return sendJson(res, 200, await installFfmpeg())
+          }
+          if (rest === '/api/update/check' && req.method === 'POST') {
+            return sendJson(res, 200, await checkUpdate())
+          }
+          if (rest === '/api/update/apply' && req.method === 'POST') {
+            return sendJson(res, 200, applyUpdate())
+          }
           return sendJson(res, 404, { error: 'not found' })
         } catch (err) {
           return sendJson(res, err && err.status ? err.status : 500, { error: String(err && err.message ? err.message : err) })
@@ -1253,3 +1705,8 @@ export function apply(ctx) {
     }),
   )
 }
+
+// 只给测试用：DSH_YTDLP_TEST=1 时把这些纯函数导出，正常运行时是 undefined。
+export const __test = process.env.DSH_YTDLP_TEST
+  ? { releaseAsset, releaseUrls, pythonCandidates, bundledPythons, extraPathDirs, firstLine, manualHint, downloadTo, installTool, installFfmpeg, detectFfmpeg, detectTool, checkUpdate, buildArgs, applyUpdate, compareVersion, titleFromFile, PIP_INDEXES, MANAGED_BIN, MANAGED_PYLIB, BIN_DIR }
+  : undefined

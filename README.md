@@ -3,21 +3,26 @@
 侧栏「视频下载」入口 + 主区域页面：贴一个链接，用本机 `yt-dlp` 下载视频 / 音频 / 字幕 / 封面，进度实时刷新。
 
 支持 YouTube、哔哩哔哩、X、TikTok 等上千个站点——它本质上是一个 yt-dlp 的图形前端。
-<img width="1920" height="1078" alt="image" src="https://github.com/user-attachments/assets/30ca6c0b-832a-44c4-8a16-108a27d755f5" />
+<img width="1920" height="1080" alt="视频下载器界面：贴链接、解析预览、选模式画质，下面是下载队列表格" src="assets/screenshot.png" />
 
 > **仅供个人学习与备份使用。** 本项目不托管、不分发任何内容，所有下载都在你自己的电脑上、通过你自己安装的 yt-dlp 完成；请遵守你所在地区的法律和所用平台的服务条款。详见[免责声明](#disclaimer)。
 
 
 ## 功能
 
-- **自动找命令**：插件自带的单文件版 → `yt-dlp` → `yt-dlp.exe` → `python -m yt_dlp` → `py -m yt_dlp`，依次探测，不用配 PATH。
-- **一键安装**：没装 yt-dlp 时，点一下自动下载官方单文件版到你本机；下载不行就退回 `pip install -U yt-dlp`。
+- **自动找命令**：插件自带的单文件版 → `yt-dlp` → `python3 -m yt_dlp` → `python -m yt_dlp` → `py -3 -m yt_dlp`，依次探测，不用配 PATH。
+- **一键安装 yt-dlp**：没装时点一下，自动下载**对应系统**的官方单文件版（Windows `yt-dlp.exe`、macOS `yt-dlp_macos`、Linux 对应架构），**不需要 Python**；直连 GitHub 超时会自动换加速镜像，再不行退回 `pip install`（系统 Python 或 DSH 自带的那个）。
+- **一键安装 ffmpeg**：ffmpeg 才是难装的那一个。插件从 PyPI 的 `imageio-ffmpeg` 轮子里取出官方静态构建，装进插件自己的 `bin/` 目录——**不需要 Homebrew、不需要 sudo、不需要能写 `/usr/local/bin`**，装完直接用 `--ffmpeg-location` 指给 yt-dlp。
+- **没有 ffmpeg 也不炸**：高清合并、转 mp3、字幕转 srt、字幕内嵌、封面转 jpg 都依赖 ffmpeg。缺它时插件会**降级到能下下来的形态**（单文件画质 / 原始音频 / 原始 vtt / 原始封面），并在那一行写清降级了什么，而不是丢一堆 `ERROR` 让人重试。
+- **跨平台启动**：从桌面 / Dock 点开 App 时系统不给 shell 的 PATH，插件会自己补上 `/opt/homebrew/bin`、`/usr/local/bin`、`~/.local/bin` 等位置，brew 装的 yt-dlp / ffmpeg 也能找到；插件 `bin/` 里的二进制永远优先。
+- **界面**：单列卡片（链接 → 解析结果 → 模式 / 画质 → 开始下载）+ 队列表格（文件 / 类型 / 进度 / 操作），浅色为主，跟随系统深色模式。
 - **解析预览**：标题、UP 主、时长、播放量、封面、可选清晰度、字幕数量。
 - **下载前试看**：点封面上的「▶ 试看」，直接在页面里播放（取一条临时直链，不落盘）。
 - **四种模式**：视频（最佳 / 2160p / 1440p / 1080p / 720p / 480p / 360p）、仅音频（MP3）、仅字幕（srt）、仅封面（jpg）。
 - **视频加料**：内嵌中英文字幕（可选额外保留 .srt）、整播放列表。
 - **高级**：时间片段（`00:30-01:30`）、播放列表范围（`1:10`）、跳过已下载、代理、限速、并发 1–3、完成后自动打开。
-- **队列**：并发下载、实时百分比 / 速度 / 剩余时间、单任务**暂停 / 继续**（从断点续传）、取消、失败一键重试。
+- **队列**：并发下载、实时百分比 / 速度 / 剩余时间、单任务**暂停 / 继续**（从断点续传）、取消、失败一键重试；每行显示**视频名**（从 yt-dlp 的落盘文件名解析，链接只在悬停时显示），方便搜索和对号。
+- **检查更新**：点页脚版本号，自动比对 GitHub 上的最新版本；能 git pull 的直接更新，装成副本的给你一句可直接发给 Harness 的更新指令。
 - **Agent 工具**：除了点面板，也能在对话里直接让 Harness 下载、查询、暂停（见下）。
 - **Cookies**：上传 cookies.txt 长期生效，也能直读 Edge / Firefox 的 Cookie。
 - **保存位置**：默认 `~/Downloads/YT-DLP`，可随时更换。
@@ -108,24 +113,37 @@ git clone https://github.com/Raymond-Hear/dsh-video-downloader.git
 
 ### 装完第一次打开
 
-- 本机没有 yt-dlp 时，页面顶部会出现「一键安装 yt-dlp」按钮：先试官方单文件版，拉不动就退回 `pip install -U yt-dlp`。
-- 建议顺手装 ffmpeg（`winget install ffmpeg`），否则高清画质无法合并、MP3 转码、封面转 jpg 会失败；装完点右上角「重新检测」。
+- 本机没有 yt-dlp 时，页面顶部会出现「一键安装 yt-dlp」按钮：先下载当前系统的官方单文件版（不依赖 Python），GitHub 直连超时就依次换加速镜像，最后才退回 `pip install`。
+- 没有 ffmpeg 时会出现黄色提示条 + 「一键安装 ffmpeg」：从 PyPI 取静态构建放进插件 `bin/`，不需要 Homebrew。不装也能用，只是高清合并 / MP3 / 字幕转 srt 会降级。
 - 默认保存到 `~/Downloads/YT-DLP`，可在页面底部改。
 
 ### 更新与卸载
 
-- **更新**：在插件管理器里对「视频下载器」执行更新（或重新用 git 地址装一次），然后重启 Harness 让 Host 侧代码重载。
-- **卸载**：插件管理器里移除这个 bundle。下载好的文件、以及 `%LOCALAPPDATA%\dsh-ytdlp\` 里的记录不会被删除。
+- **检查更新**：点页面右下角的版本号（`v1.3.0`）。有新版本时它会变成 `v1.1.0 → v1.3.0`，点开是个弹窗：
+  - 插件目录本身是 git 仓库（本地 clone / `link:` 安装）→ 直接「立即更新」，跑 `git pull --ff-only`；更新完刷新页面看界面变化，Host 侧改动需要重启 Harness。
+  - Harness 把插件装进了 profile（副本）→ 插件自己没法替换文件，弹窗会给一句可以直接发给 Harness 的话，复制过去让它重装即可。
+- 版本号来自 GitHub 上的 `package.json`（jsdelivr 优先，raw / GitHub API 兜底），不依赖插件自己发起下载。
+- **卸载**：插件管理器里移除这个 bundle。下载好的文件、以及 `%LOCALAPPDATA%\dsh-ytdlp\`（macOS / Linux 在 `~/.local/share/dsh-ytdlp/`）里的记录不会被删除。
 
 ## 依赖与本机环境
 
 | 依赖 | 是否需要 | 说明 |
 | --- | --- | --- |
 | yt-dlp | 必须 | 插件会先找自带的，再找 PATH / Python 模块；都没有时页面上一键安装 |
-| ffmpeg | 强烈建议 | 高清画质要合并音视频、MP3 转码、封面转 jpg 都要它；没装时低清单文件仍可下 |
-| Python | 可选 | 只有走 `pip install` 兜底安装时才需要 |
+| ffmpeg | 强烈建议 | 高清合并、MP3 转码、字幕转 srt、字幕内嵌、封面转 jpg 都要它；缺失时自动降级，也可以页面上一键安装 |
+| Python | 不需要 | 单文件版自带解释器；只有连单文件版都下不下来时，才用 pip 兜底（系统 Python 或 DSH 自带的那个） |
 
-ffmpeg 缺失时页面顶部会标红提示，自己装一个（`winget install ffmpeg`）后点「重新检测」即可。
+ffmpeg 缺失时页面顶部会显示黄色提示条，点「一键安装 ffmpeg」即可；已经用 `brew` / `winget` 装过的，点「重新检测」也能认出来。
+
+### 在 Mac 上（尤其是没装过开发工具的新机器）
+
+有台 macOS 26 / Apple Silicon 的实机跑过一遍：**没有 Homebrew、没有 sudo、`/usr/local/bin` 根本不存在**，`/usr/bin/python3` 只是 Xcode 命令行工具里的 3.9.6。这种机器上「brew install xxx」这条建议是完全没用的，所以插件不依赖它：
+
+1. **yt-dlp**：下载 `yt-dlp_macos`（universal2）单文件版，`chmod 755` 并清掉 Gatekeeper 隔离标记 —— 自带解释器，跟 Python 没关系。直连 GitHub `ETIMEDOUT` 就换 `ghfast.top` / `gh-proxy.com` 等加速入口。
+2. **ffmpeg**：用 DSH 自带的 Python 跑 `pip download imageio-ffmpeg`（清华 / 阿里云镜像优先），从轮子里取出 `binaries/ffmpeg-macos-aarch64-*` 放进插件 `bin/`，等于零权限安装。
+3. **Python 兜底**：DSH 桌面版自带私有 Python（`~/.dsh/dsh-runtimes/dsh-primary-runtime/dependencies/python`），它不在 PATH 里，但插件会去那儿找；`pip --target` 装进插件私有目录，不动系统环境。
+4. **旧版本遗留**：1.1.0 在 mac 上把 yt-dlp 存成了 `bin/yt-dlp.exe`（内容其实是 mach-o），升级后会自动改回 `bin/yt-dlp`，不会突然「找不到 yt-dlp」。
+5. 插件 `bin/` 里的 `yt-dlp` / `ffmpeg` 永远优先于 PATH —— 因为从 Dock 启动的 App 拿不到 shell 的 PATH。
 
 ## 已验证的环境与场景
 
@@ -133,11 +151,11 @@ ffmpeg 缺失时页面顶部会标红提示，自己装一个（`winget install 
 
 | 项目 | 版本 |
 | --- | --- |
-| 插件 | 1.1.0 |
+| 插件 | 1.3.0 |
 | DeepSeek Harness | 0.2.1-rc.5（桌面版） |
 | 操作系统 | Windows 11 家庭版（build 26300） |
-| yt-dlp | 2026.10.26（`python -m yt_dlp`） |
-| ffmpeg | 8.1.1 essentials |
+| yt-dlp | 2026.10.26（插件 `bin/` 里的单文件版） |
+| ffmpeg | 8.1.1 essentials（PATH）/ 9.0.2（插件 `bin/`，一键安装实测） |
 
 **场景**（只列真跑通过的）
 
@@ -155,7 +173,14 @@ ffmpeg 缺失时页面顶部会标红提示，自己装一个（`winget install 
 | 无 cookie 下公开内容 | ✅ | YouTube、X、哔哩哔哩的公开视频 |
 | 上传 cookies.txt 并生效 | ✅ | |
 
-**未验证**：macOS / Linux、DSH 其他版本、会员专属内容（本机没有可测的会员账号）。未验证的组合请不要当成支持承诺。
+**未验证 / 已知情况**：
+
+- **macOS**：1.3.0 的跨平台逻辑（按平台选资产、插件 `bin/` 优先、DSH 自带 Python 兜底、一键装 ffmpeg、`bin/yt-dlp.exe` 迁移）是按一台真实 macOS 26 / Apple Silicon 机器的实际障碍写的（没有 Homebrew、没有 sudo、`/usr/local/bin` 不存在、只有 Xcode 的 python3），但**新版本身还没在那台机器上回归过**。macOS 上 yt-dlp 的可执行性、`chmod`/去隔离、wheel 里的 ffmpeg 能否直接跑，属于「按机制推断 + Windows 上同代码路径实测」。
+- **Linux**：完全未在实机验证。
+- DSH 其他版本、会员专属内容（本机没有可测的会员账号）也未验证。
+- Windows 上「一键安装 ffmpeg」是实跑通过的（从清华镜像下 `imageio-ffmpeg` 轮子 → 解压 → `bin/ffmpeg.exe` → `--version` 为 9.0.2）。
+
+请不要把未验证的组合当成支持承诺。
 
 ## 隐私：不会上传的东西
 
@@ -228,8 +253,11 @@ git diff --cached --stat        # 看一眼这次改了哪些文件
 | POST | `/ytdlp/api/cookies/upload` | `{name, text}` → 存到本地并设为默认 |
 | POST | `/ytdlp/api/cookies/forget` | 取消默认 cookies.txt |
 | POST | `/ytdlp/api/install-tool` | 下载并安装 yt-dlp |
+| POST | `/ytdlp/api/install-ffmpeg` | 从 PyPI 的 `imageio-ffmpeg` 轮子取静态 ffmpeg，装进插件 `bin/` |
 | POST | `/ytdlp/api/open` | `{path, reveal}` 打开文件夹 / 定位文件 |
 | POST | `/ytdlp/api/recheck` | 重新探测命令 |
+| POST | `/ytdlp/api/update/check` | 比对远端最新版本（jsdelivr → raw → GitHub API） |
+| POST | `/ytdlp/api/update/apply` | git 仓库安装时执行 `git pull --ff-only` |
 
 下载参数：`url`、`mode`（video/audio/subs/thumb）、`quality`、`subtitles`、`playlist`、`section`、`playlistItems`、`archive`、`proxy`、`limitRate`、`cookies`、`cookiesFile`。
 

@@ -14,3 +14,10 @@ state.json
 *.log
 .DS_Store
 Thumbs.db
+
+# 本地验收用的预览脚手架与截图（依赖本机 React / Chromium 路径，不发布）
+.preview/
+preview-*.png
+
+# 用户发来的会话导出（含个人路径与对话，别提交）
+.maccase/
