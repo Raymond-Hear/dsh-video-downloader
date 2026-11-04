@@ -18,7 +18,7 @@ import { StringDecoder } from 'node:string_decoder'
 import { fileURLToPath } from 'node:url'
 
 export const name = 'video-downloader'
-export const inject = ['webServer']
+export const inject = ['webServer', 'tools']
 
 const PLUGIN_ROOT = dirname(fileURLToPath(import.meta.url))
 // 界面里用到的静态图片（比如 cookies 导出步骤图）
@@ -33,11 +33,16 @@ const DEFAULT_OUTPUT = join(homedir(), 'Downloads', 'YT-DLP')
 const BIN_DIR = join(STATE_DIR, 'bin')
 const MANAGED_EXE = join(BIN_DIR, 'yt-dlp.exe')
 
-// 版本号只有一个来源：package.json
-const PKG = (() => {
-  try { return JSON.parse(readFileSync(new URL('./package.json', import.meta.url), 'utf8')) } catch { return {} }
-})()
-export const VERSION = PKG.version || '0.0.0'
+// 版本号只有一个来源：package.json。读成函数而不是常量，
+// 这样改完版本号不必重启 Harness 才能看到。
+function pluginVersion() {
+  try {
+    return JSON.parse(readFileSync(new URL('./package.json', import.meta.url), 'utf8')).version || '0.0.0'
+  } catch {
+    return '0.0.0'
+  }
+}
+export const VERSION = pluginVersion()
 export const REPO_URL = 'https://github.com/Raymond-Hear/dsh-video-downloader'
 export const AUTHOR = '聆风 Raymond'
 
@@ -205,7 +210,6 @@ async function installTool() {
 }
 
 /* ---------------------------------------------------------- subtitle tidy-up */
-
 // 勾了「内嵌字幕」时，yt-dlp 会顺手在同目录写下 .vtt/.srt 等字幕文件。
 // 字幕已经进到 mp4 里了，这些散落的小文件只会让人误以为"下错了"，这里清掉。
 function cleanupSidecarSubs(file, since) {
@@ -229,6 +233,23 @@ function cleanupSidecarSubs(file, since) {
   return removed
 }
 
+// 成品的完整产物列表：主文件 + 同名的字幕文件（勾了保留字幕时才会有）
+function collectArtifacts(file) {
+  if (!file) return []
+  const out = [file]
+  const dir = dirname(file)
+  const base = basename(file).replace(/\.[^.]+$/, '')
+  try {
+    for (const name of readdirSync(dir)) {
+      if (name === basename(file)) continue
+      if (!name.startsWith(base + '.')) continue
+      if (!/\.(vtt|srt|ass|json3)$/i.test(name)) continue
+      out.push(join(dir, name))
+    }
+  } catch {}
+  return out
+}
+
 /* -------------------------------------------------------------------- jobs */
 
 function blankJob(patch) {
@@ -248,6 +269,8 @@ function blankJob(patch) {
     archive: false,
     proxy: '',
     limitRate: '',
+    keepSubs: false,
+    source: 'ui',
     cookies: '',
     cookiesFile: '',
     status: 'queued',
@@ -256,6 +279,7 @@ function blankJob(patch) {
     eta: '',
     size: '',
     file: '',
+    files: [],
     error: '',
     note: '',
     createdAt: new Date().toISOString(),
@@ -266,7 +290,7 @@ function blankJob(patch) {
 
 // 页面只需要一份精简快照：去掉 ChildProcess 之类的运行时对象
 function publicJob(job) {
-  const { child, ...copy } = job
+  const { child, pauseRequested, ...copy } = job
   return copy
 }
 
@@ -386,7 +410,7 @@ function buildArgs(job) {
   if (job.section) args.push('--download-sections', `*${job.section}`, '--force-keyframes-at-cuts')
 
   if (job.mode === 'subs') {
-    args.push('--skip-download', '--write-subs', '--write-auto-subs', '--sub-langs', 'zh.*,en.*', '--convert-subs', 'srt')
+    args.push('--skip-download', '--write-subs', '--write-auto-subs', '--sub-langs', SUB_LANGS, '--convert-subs', 'srt')
   } else if (job.mode === 'thumb') {
     args.push('--skip-download', '--write-thumbnail', '--convert-thumbnails', 'jpg')
   } else if (job.mode === 'audio') {
@@ -395,7 +419,7 @@ function buildArgs(job) {
     const height = Number(job.quality) || 0
     args.push('-f', height ? `bv*[height<=${height}]+ba/b[height<=${height}]/b` : 'bv*+ba/b')
     args.push('--merge-output-format', 'mp4')
-    if (job.subtitles) args.push('--write-subs', '--write-auto-subs', '--sub-langs', 'zh.*,en.*', '--embed-subs')
+    if (job.subtitles) args.push('--write-subs', '--write-auto-subs', '--sub-langs', SUB_LANGS, '--embed-subs')
   }
   args.push('--concurrent-fragments', '4')
   args.push(job.url)
@@ -473,6 +497,13 @@ function runJob(job) {
       job.child = undefined
       if (job.status === 'canceled') {
         // 保持取消状态
+      } else if (job.pauseRequested) {
+        // 暂停：进程被杀掉，但任务留在队列里，恢复时会从 .part 续传
+        job.pauseRequested = false
+        job.status = 'paused'
+        job.speed = ''
+        job.eta = ''
+        return resolve()
       } else if (code === 0) {
         job.status = 'done'
         job.percent = 100
@@ -494,11 +525,12 @@ function runJob(job) {
         const converted = job.file.replace(/\.[^.\\/]+$/, '.jpg')
         if (converted !== job.file && existsSync(converted)) job.file = converted
       }
-      // 字幕已经内嵌进视频，把旁边散落的 .vtt/.srt 收掉
-      if (job.status === 'done' && job.subtitles && job.file) {
+      // 字幕已经内嵌进视频，把旁边散落的 .vtt/.srt 收掉（勾了「保留字幕文件」就不动）
+      if (job.status === 'done' && job.subtitles && job.file && !job.keepSubs) {
         const removed = cleanupSidecarSubs(job.file, job.startedAt || 0)
         if (removed > 0) job.note = `已内嵌字幕，清掉 ${removed} 个字幕散文件`
       }
+      if (job.status === 'done') job.files = collectArtifacts(job.file)
       job.finishedAt = new Date().toISOString()
       remember(job)
       jobs.delete(job.id)
@@ -626,6 +658,236 @@ function previewSource(rawUrl, opts = {}) {
   })
 }
 
+/* -------------------------------------------------------------------- tools */
+
+const STATUS_ZH = { queued: '排队中', downloading: '下载中', postprocessing: '处理中', paused: '已暂停', done: '已完成', error: '出错', canceled: '已取消' }
+const MODE_ZH = { video: '视频', audio: '音频', subs: '字幕', thumb: '封面' }
+const DOWNLOAD_MODES = ['video', 'audio', 'subs', 'thumb']
+const QUALITY_CHOICES = ['best', '2160', '1440', '1080', '720', '480', '360']
+// 字幕语言写死成精确列表：用 zh.* 这种通配符会把 YouTube 的机翻变体
+// （zh-Hans-es-419、zh-Hant-pt-BR…）全部下下来，一次几百个文件。
+const SUB_LANGS = 'zh-Hans,zh-Hant,zh-CN,zh-TW,zh,en,en-US,en-orig'
+const CONTROL_ACTIONS = ['cancel', 'pause', 'resume']
+
+const TEXT_OUT = (value) => [{ type: 'text', text: value }]
+
+function jobSummary(job) {
+  return {
+    id: job.id,
+    status: job.status,
+    statusText: STATUS_ZH[job.status] || job.status,
+    mode: job.mode,
+    title: job.title || job.url,
+    percent: Math.round(Number(job.percent) || 0),
+    file: job.file || '',
+    files: Array.isArray(job.files) ? job.files : (job.file ? [job.file] : []),
+    error: job.error || '',
+  }
+}
+
+function findJob(id) {
+  return jobs.get(id) || state.history.find((j) => j.id === id)
+}
+
+// 工具参数是原始 JSON Schema，没有自动校验，这里自己挡
+function checkArgs(args, schema) {
+  const problems = []
+  const props = schema.properties || {}
+  for (const key of schema.required || []) {
+    if (args[key] === undefined || args[key] === '') problems.push(`缺少参数 ${key}`)
+  }
+  for (const [key, value] of Object.entries(args || {})) {
+    const prop = props[key]
+    if (!prop) { problems.push(`未知参数 ${key}`); continue }
+    if (prop.type === 'boolean') {
+      if (typeof value !== 'boolean') problems.push(`${key} 要是布尔值`)
+      continue
+    }
+    if (typeof value !== 'string') { problems.push(`${key} 要是字符串`); continue }
+    if (prop.enum && !prop.enum.includes(value)) problems.push(`${key} 只能是 ${prop.enum.join(' / ')}`)
+  }
+  if (problems.length) throw new Error(problems.join('；'))
+}
+
+const PROBE_PARAMS = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['url'],
+  properties: {
+    url: { type: 'string', description: '完整的视频页面链接（YouTube / 哔哩哔哩 / X / TikTok 等）' },
+  },
+}
+
+const DOWNLOAD_PARAMS = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['url'],
+  properties: {
+    url: { type: 'string', description: '完整的视频页面链接' },
+    mode: { type: 'string', enum: DOWNLOAD_MODES, description: '下载什么：video 视频、audio 仅音频（mp3）、subs 仅字幕（srt）、thumb 仅封面（jpg）。默认 video' },
+    quality: { type: 'string', enum: QUALITY_CHOICES, description: '视频清晰度上限，仅 video 模式有效。默认 1080' },
+    subtitles: { type: 'boolean', description: 'video 模式下把字幕内嵌进视频' },
+    keepSubs: { type: 'boolean', description: '内嵌字幕的同时，额外保留独立的 .srt 字幕文件（用户要拿字幕做整理时用）' },
+    playlist: { type: 'boolean', description: '链接是播放列表时是否整列表下载' },
+    section: { type: 'string', description: '只下某一段，格式 00:30-01:30' },
+    playlistItems: { type: 'string', description: '只下播放列表的某些项，格式 1:10' },
+  },
+}
+
+const JOBS_PARAMS = {
+  type: 'object',
+  additionalProperties: false,
+  properties: {
+    jobId: { type: 'string', description: '只查这一个任务；不填就返回整个队列和历史' },
+    limit: { type: 'string', description: '最多返回多少条，默认 10' },
+  },
+}
+
+const CONTROL_PARAMS = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['jobId', 'action'],
+  properties: {
+    jobId: { type: 'string', description: '任务编号' },
+    action: { type: 'string', enum: CONTROL_ACTIONS, description: 'cancel 取消；pause 暂停（恢复时从断点续传）；resume 继续' },
+  },
+}
+
+const JOB_SHAPE = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['id', 'status', 'statusText', 'mode', 'title', 'percent', 'file', 'files', 'error'],
+  properties: {
+    id: { type: 'string' },
+    status: { type: 'string' },
+    statusText: { type: 'string' },
+    mode: { type: 'string' },
+    title: { type: 'string' },
+    percent: { type: 'number' },
+    file: { type: 'string' },
+    files: { type: 'array', items: { type: 'string' } },
+    error: { type: 'string' },
+  },
+}
+
+const renderJob = (_args, v) => TEXT_OUT(
+  `${v.title || v.id}\n状态：${v.statusText}${v.percent ? `（${v.percent}%）` : ''}`
+  + `${v.file ? `\n文件：${v.file}` : ''}${v.error ? `\n错误：${v.error}` : ''}`,
+)
+
+const TOOLS = [
+  {
+    name: 'video_probe',
+    description: '解析一个视频链接，返回标题、作者、时长、可选清晰度、字幕语言数量和是否直播。用户想先确认链接能不能下、或要挑清晰度时先用它。',
+    parameters: PROBE_PARAMS,
+    timeoutMs: 120000,
+    output: {
+      schema: {
+        type: 'object',
+        additionalProperties: false,
+        required: ['title', 'uploader', 'duration', 'heights', 'subtitleCount', 'isLive', 'url'],
+        properties: {
+          title: { type: 'string' },
+          uploader: { type: 'string' },
+          duration: { type: 'number' },
+          heights: { type: 'array', items: { type: 'number' } },
+          subtitleCount: { type: 'number' },
+          isLive: { type: 'boolean' },
+          url: { type: 'string' },
+        },
+      },
+      render: (_args, v) => TEXT_OUT(
+        `${v.title}${v.uploader ? ` — ${v.uploader}` : ''}\n时长：${Math.round(v.duration || 0)} 秒`
+        + `${v.heights && v.heights.length ? `\n可选清晰度：${v.heights.join(' / ')}p` : ''}`
+        + `${v.subtitleCount ? `\n字幕：${v.subtitleCount} 种语言` : '\n字幕：无'}`,
+      ),
+    },
+    async execute(args) {
+      checkArgs(args, PROBE_PARAMS)
+      const info = await probe(String(args.url).trim())
+      return {
+        title: info.title,
+        uploader: info.uploader,
+        duration: Number(info.duration) || 0,
+        heights: info.heights || [],
+        subtitleCount: Number(info.subtitleCount) || 0,
+        isLive: Boolean(info.isLive),
+        url: info.webpageUrl,
+      }
+    },
+  },
+  {
+    name: 'video_download',
+    description: '把一个视频链接加入本机下载队列（用本机的 yt-dlp 真正下载）。立刻返回任务编号，不会等下载完成；要查进度或拿文件路径，之后用 video_jobs 查这个编号。下载参数没说的部分沿用用户在面板里的设置。',
+    parameters: DOWNLOAD_PARAMS,
+    timeoutMs: 20000,
+    output: { schema: JOB_SHAPE, render: renderJob },
+    async execute(args) {
+      checkArgs(args, DOWNLOAD_PARAMS)
+      const job = startDownload({
+        url: String(args.url).trim(),
+        mode: args.mode || 'video',
+        quality: args.quality || state.defaults.quality || '1080',
+        subtitles: Boolean(args.subtitles),
+        keepSubs: Boolean(args.keepSubs),
+        playlist: Boolean(args.playlist),
+        section: args.section || '',
+        playlistItems: args.playlistItems || '',
+        source: 'agent',
+      })
+      return jobSummary(job)
+    },
+  },
+  {
+    name: 'video_jobs',
+    description: '查询下载任务：不传 jobId 返回最近的队列与历史，传了只返回那一个。返回状态、进度、成品文件路径（完成前为空）和错误原因。',
+    parameters: JOBS_PARAMS,
+    timeoutMs: 15000,
+    output: {
+      schema: {
+        type: 'object',
+        additionalProperties: false,
+        required: ['jobs'],
+        properties: { jobs: { type: 'array', items: JOB_SHAPE } },
+      },
+      render: (_args, v) => TEXT_OUT(
+        v.jobs.length
+          ? v.jobs.map((j) => `${j.statusText}  ${j.title || j.id}${j.percent ? `（${j.percent}%）` : ''}${j.file ? `\n    ${j.file}` : ''}`).join('\n')
+          : '队列是空的',
+      ),
+    },
+    async execute(args) {
+      checkArgs(args, JOBS_PARAMS)
+      if (args.jobId) {
+        const job = findJob(String(args.jobId))
+        if (!job) throw new Error(`没有这个任务：${args.jobId}`)
+        return { jobs: [jobSummary(job)] }
+      }
+      const limit = Math.max(1, Math.min(30, Number(args.limit) || 10))
+      return { jobs: jobList().slice(0, limit).map(jobSummary) }
+    },
+  },
+  {
+    name: 'video_control',
+    description: '控制一个下载任务：cancel 取消、pause 暂停、resume 继续（继续会从断点续传，不会从头下）。',
+    parameters: CONTROL_PARAMS,
+    timeoutMs: 15000,
+    output: { schema: JOB_SHAPE, render: renderJob },
+    async execute(args) {
+      checkArgs(args, CONTROL_PARAMS)
+      const id = String(args.jobId)
+      let ok = false
+      if (args.action === 'cancel') ok = cancelJob(id)
+      else if (args.action === 'pause') ok = pauseJob(id)
+      else ok = resumeJob(id)
+      const label = args.action === 'cancel' ? '取消' : args.action === 'pause' ? '暂停' : '继续'
+      if (!ok) throw new Error(`这个任务当前不能${label}（可能已经结束或状态不对）：${id}`)
+      const job = findJob(id)
+      return job ? jobSummary(job) : { id, status: 'queued', statusText: '排队中', mode: '', title: '', percent: 0, file: '', files: [], error: '' }
+    },
+  },
+]
+
 /* ---------------------------------------------------------------- web layer */
 
 function sendJson(res, status, body) {
@@ -658,7 +920,7 @@ function envPayload() {
     state.defaults = { ...state.defaults, cookiesFile: '' }
   }
   return {
-    version: VERSION,
+    version: pluginVersion(),
     repo: REPO_URL,
     author: AUTHOR,
     tool: tool ? { ok: true, version: tool.version, command: [tool.command, ...tool.prefix].join(' '), managed: tool.command === MANAGED_EXE } : { ok: false, version: '', command: '', managed: false },
@@ -715,6 +977,8 @@ function startDownload(input) {
     archive: Boolean(input.archive),
     proxy: String(input.proxy || state.defaults.proxy || '').trim(),
     limitRate: String(input.limitRate || state.defaults.limitRate || '').trim(),
+    keepSubs: Boolean(input.keepSubs),
+    source: input.source === 'agent' ? 'agent' : 'ui',
     cookies: cookiesFile ? '' : String(input.cookies || ''),
     cookiesFile,
   })
@@ -780,6 +1044,35 @@ function cancelJob(id) {
   return false
 }
 
+// 暂停：正在跑就把进程停掉（任务留在表里），排队的直接摘出队列。
+// 恢复时重跑同一个任务，yt-dlp 会接着 .part 续传，不会从头下。
+function pauseJob(id) {
+  const job = jobs.get(id)
+  if (!job) return false
+  if (job.child) {
+    job.pauseRequested = true
+    try { job.child.kill('SIGTERM') } catch {}
+    return true
+  }
+  const index = queue.findIndex((j) => j.id === id)
+  if (index >= 0) {
+    queue.splice(index, 1)
+    job.status = 'paused'
+    return true
+  }
+  return false
+}
+
+function resumeJob(id) {
+  const job = jobs.get(id)
+  if (!job || job.status !== 'paused') return false
+  job.status = 'queued'
+  job.error = ''
+  queue.unshift(job)
+  pump()
+  return true
+}
+
 // 打开资源管理器。Windows 这边必须走 shell 拼命令行：
 // explorer 只认 `/select,"带空格的路径"` 这种形态，用 spawn 传参数数组时
 // 引号位置不对，explorer 会退回「文档」，表现就是"点了打开的是文档文件夹"。
@@ -834,6 +1127,11 @@ export function apply(ctx) {
     if (job.status === 'done' || job.status === 'error' || job.status === 'canceled') jobs.delete(id)
   }
 
+  // 把下载能力同时暴露给 Agent：聊天里也能发起、查询、控制
+  for (const tool of TOOLS) {
+    ctx.effect(() => ctx.tools.register(tool))
+  }
+
   ctx.effect(() =>
     ctx.webServer.register({
       kind: 'prefix',
@@ -865,6 +1163,14 @@ export function apply(ctx) {
           if (rest === '/api/retry' && req.method === 'POST') {
             const body = await readJson(req)
             return sendJson(res, 200, { job: retryJob(String(body.id || '')) })
+          }
+          if (rest === '/api/pause' && req.method === 'POST') {
+            const body = await readJson(req)
+            return sendJson(res, 200, { ok: pauseJob(String(body.id || '')) })
+          }
+          if (rest === '/api/resume' && req.method === 'POST') {
+            const body = await readJson(req)
+            return sendJson(res, 200, { ok: resumeJob(String(body.id || '')) })
           }
           if (rest === '/api/queue' && req.method === 'POST') {
             const body = await readJson(req)

@@ -13,11 +13,38 @@
 - **解析预览**：标题、UP 主、时长、播放量、封面、可选清晰度、字幕数量。
 - **下载前试看**：点封面上的「▶ 试看」，直接在页面里播放（取一条临时直链，不落盘）。
 - **四种模式**：视频（最佳 / 2160p / 1440p / 1080p / 720p / 480p / 360p）、仅音频（MP3）、仅字幕（srt）、仅封面（jpg）。
-- **视频加料**：内嵌中英文字幕、整播放列表。
+- **视频加料**：内嵌中英文字幕（可选额外保留 .srt）、整播放列表。
 - **高级**：时间片段（`00:30-01:30`）、播放列表范围（`1:10`）、跳过已下载、代理、限速、并发 1–3、完成后自动打开。
-- **队列**：并发下载、实时百分比 / 速度 / 剩余时间、暂停/继续队列、取消、失败一键重试。
+- **队列**：并发下载、实时百分比 / 速度 / 剩余时间、单任务**暂停 / 继续**（从断点续传）、取消、失败一键重试。
+- **Agent 工具**：除了点面板，也能在对话里直接让 Harness 下载、查询、暂停（见下）。
 - **Cookies**：上传 cookies.txt 长期生效，也能直读 Edge / Firefox 的 Cookie。
 - **保存位置**：默认 `~/Downloads/YT-DLP`，可随时更换。
+
+## 在对话里用（Agent 工具）
+
+插件给 Agent 注册了 4 个工具，聊天里直接说就行，不需要你自己拼命令行：
+
+| 工具 | 作用 |
+| --- | --- |
+| `video_probe` | 解析链接：标题、作者、时长、可选清晰度、字幕数量、是否直播 |
+| `video_download` | 把链接加进队列（`video` / `audio` / `subs` / `thumb`），立刻返回任务编号，不等下载完成 |
+| `video_jobs` | 查任务状态、进度、成品文件路径、错误原因 |
+| `video_control` | `cancel` 取消 / `pause` 暂停 / `resume` 继续（断点续传） |
+
+可以这么说：
+
+> 帮我把这个视频的字幕下下来，然后读一遍整理成中文要点：https://www.youtube.com/watch?v=...
+
+> 把这个视频下成 720p，下完告诉我文件在哪。
+
+> 刚才那个任务暂停一下。
+
+原理：插件在 Host 进程里把「工具名 + 用途 + 参数」注册给 Agent，模型根据你的话生成参数，DSH 校验后调用插件里同一套 `startDownload()` / `probe()` / `cancelJob()`，所以 Agent 发起的任务和你点面板发起的任务**在同一个队列里**——面板能看到进度，你也能手动暂停或取消。
+
+两个刻意的设计：
+- `video_download` 只返回「任务已创建」，不等下载完成（大视频要几十分钟，工具会超时）；
+- 凭据不走工具参数，cookies 固定用本机已存的那份，避免被写进对话日志。
+
 
 ## 支持的站点（常用）
 
@@ -98,6 +125,36 @@ git clone https://github.com/Raymond-Hear/dsh-video-downloader.git
 
 ffmpeg 缺失时页面顶部会标红提示，自己装一个（`winget install ffmpeg`）后点「重新检测」即可。
 
+## 已验证的环境与场景
+
+**环境**
+
+| 项目 | 版本 |
+| --- | --- |
+| 插件 | 1.1.0 |
+| DeepSeek Harness | 0.2.1-rc.5（桌面版） |
+| 操作系统 | Windows 11 家庭版（build 26300） |
+| yt-dlp | 2026.10.26（`python -m yt_dlp`） |
+| ffmpeg | 8.1.1 essentials |
+
+**场景**（只列真跑通过的）
+
+| 场景 | 结果 | 备注 |
+| --- | --- | --- |
+| YouTube 单视频 1080p | ✅ | 得到 44.77MB 的 mp4，可播放 |
+| 哔哩哔哩单视频 | ✅ | 音视频合并成 mp4 |
+| 仅音频（mp3） | ✅ | 需要 ffmpeg |
+| 仅封面（jpg） | ✅ | 自动从 webp 转 jpg |
+| 内嵌字幕 | ✅ | `ffprobe` 能看到 4 条 mov_text 字幕轨 |
+| 仅字幕（srt） | ⚠️ | 能取到并写出文件；连续测试容易撞 YouTube 429，隔几分钟再试 |
+| 暂停 / 继续 | ✅ | 暂停后状态变 `paused`，继续后重新排队并从 `.part` 续传 |
+| 取消 / 重试 | ✅ | |
+| Agent 工具（4 个） | ✅ | 在对话里跑通 probe / download / jobs / control |
+| 无 cookie 下公开内容 | ✅ | YouTube、X、哔哩哔哩的公开视频 |
+| 上传 cookies.txt 并生效 | ✅ | |
+
+**未验证**：macOS / Linux、DSH 其他版本、会员专属内容（本机没有可测的会员账号）。未验证的组合请不要当成支持承诺。
+
 ## 隐私：不会上传的东西
 
 插件确实会碰这些本地数据，但它们**都不在仓库里**，`.gitignore` 也已经挡住：
@@ -159,7 +216,9 @@ git diff --cached --stat        # 看一眼这次改了哪些文件
 | POST | `/ytdlp/api/probe` | `{url, cookies?, cookiesFile?}` → 视频元数据 |
 | POST | `/ytdlp/api/download` | 任务参数 → job |
 | POST | `/ytdlp/api/retry` | `{id}` 用原参数重下 |
-| POST | `/ytdlp/api/queue` | `{paused}` 暂停 / 继续队列 |
+| POST | `/ytdlp/api/pause` | `{id}` 暂停单个任务（保留断点） |
+| POST | `/ytdlp/api/resume` | `{id}` 继续该任务，从 `.part` 续传 |
+| POST | `/ytdlp/api/queue` | `{paused}` 暂停 / 继续整个队列 |
 | GET | `/ytdlp/api/jobs` | 队列 + 历史 + 队列状态 |
 | POST | `/ytdlp/api/cancel` | `{id}` |
 | POST | `/ytdlp/api/settings` | `{outputDir}` 或 `{defaults}` |

@@ -44,6 +44,7 @@ window.__ModuleLoader__.load({
       queued: '排队中',
       downloading: '下载中',
       postprocessing: '处理中',
+      paused: '已暂停',
       done: '已完成',
       error: '出错',
       canceled: '已取消',
@@ -274,7 +275,7 @@ window.__ModuleLoader__.load({
         const [env, setEnv] = React.useState(null)
         const [url, setUrl] = React.useState('')
         const [opts, setOpts] = React.useState({
-          mode: 'video', quality: '1080', subtitles: false, playlist: false,
+          mode: 'video', quality: '1080', subtitles: false, keepSubs: false, playlist: false,
           cookies: '', cookiesFile: '', section: '', playlistItems: '', archive: false,
           proxy: '', limitRate: '', concurrency: 2, autoOpen: false,
         })
@@ -358,6 +359,7 @@ window.__ModuleLoader__.load({
             mode: opts.mode,
             quality: opts.quality,
             subtitles: opts.subtitles,
+            keepSubs: opts.keepSubs,
             playlist: opts.playlist,
             cookies: opts.cookies === 'file' ? '' : opts.cookies,
             cookiesFile: opts.cookies === 'file' ? opts.cookiesFile : '',
@@ -417,6 +419,14 @@ window.__ModuleLoader__.load({
 
         async function cancel(job) {
           try { await api('/api/cancel', { id: job.id }) } catch (err) { setNotice({ kind: 'error', text: String(err.message || err) }) }
+        }
+
+        async function pause(job) {
+          try { await api('/api/pause', { id: job.id }) } catch (err) { setNotice({ kind: 'error', text: String(err.message || err) }) }
+        }
+
+        async function resume(job) {
+          try { await api('/api/resume', { id: job.id }) } catch (err) { setNotice({ kind: 'error', text: String(err.message || err) }) }
         }
 
         async function retry(job) {
@@ -566,6 +576,11 @@ window.__ModuleLoader__.load({
             ? h('label', { className: 'ytdlp-check', title: '把中英文字幕压进视频里' },
               h('input', { type: 'checkbox', checked: opts.subtitles, onChange: (e) => patch({ subtitles: e.target.checked }) }),
               '内嵌字幕')
+            : null,
+          opts.mode === 'video' && opts.subtitles
+            ? h('label', { className: 'ytdlp-check', title: '内嵌的同时额外留一份 .srt，方便以后拿字幕整理内容' },
+              h('input', { type: 'checkbox', checked: opts.keepSubs, onChange: (e) => patch({ keepSubs: e.target.checked }) }),
+              '保留字幕文件')
             : null,
           h('label', { className: 'ytdlp-check', title: '链接是播放列表时，整列表下载' },
             h('input', { type: 'checkbox', checked: opts.playlist, onChange: (e) => patch({ playlist: e.target.checked }) }),
@@ -760,6 +775,7 @@ window.__ModuleLoader__.load({
                 h('div', { className: 'ytdlp-job-top' },
                   h('div', { className: 'ytdlp-job-title', title: job.title || job.url }, job.title || job.url),
                   modeLabel !== '视频' ? h('span', { className: 'ytdlp-badge' }, modeLabel) : null,
+                  job.source === 'agent' ? h('span', { className: 'ytdlp-badge' }, 'Agent') : null,
                   job.section ? h('span', { className: 'ytdlp-badge' }, job.section) : null,
                   h('div', { className: `ytdlp-job-status ${job.status === 'done' ? 'done' : job.status === 'error' ? 'error' : ''}` }, STATUS_TEXT[job.status] || job.status),
                 ),
@@ -774,6 +790,12 @@ window.__ModuleLoader__.load({
                         : job.status === 'done' ? [job.file || '已保存', job.note].filter(Boolean).join(' · ')
                           : job.status === 'queued' ? '等待前面的任务完成' : job.error || ''),
                   job.status === 'downloading' || job.status === 'queued'
+                    ? h('button', { className: 'ytdlp-btn ghost', onClick: () => pause(job), title: '暂停后可以从断点继续' }, '暂停')
+                    : null,
+                  job.status === 'paused'
+                    ? h('button', { className: 'ytdlp-btn ghost', onClick: () => resume(job), title: '从断点继续下载' }, '继续')
+                    : null,
+                  job.status === 'downloading' || job.status === 'queued' || job.status === 'paused'
                     ? h('button', { className: 'ytdlp-btn ghost danger', onClick: () => cancel(job) }, '取消')
                     : null,
                   job.status === 'error' || job.status === 'canceled'
