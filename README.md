@@ -216,11 +216,15 @@ git grep -nEi "cookie|token|secret|api[_-]?key" -- '*.txt' '*.json' '*.env'
 # 改完代码，把 package.json 的 version 往上加一位
 git add -A
 git commit -m "feat: ..."
-git tag v1.0.1
+git tag -a v1.0.1 -m "v1.0.1 · 一句话说明"
 git push origin main --tags
+
+# GitHub 不会因为 tag 自动生成 release，要手动建一次：
+# 插件的「检查更新」优先读 Release API，只推 tag 的话老用户会以为已是最新版
+gh release create v1.0.1 --title "v1.0.1 · 一句话说明" --notes-file RELEASE_NOTES.md
 ```
 
-GitHub 上会按 tag 生成 release。想发 npm 的话，删掉 `package.json` 里的 `"private": true` 再 `npm publish`。
+release 建好后，「检查更新」就能看到新版本（`package.json` 的 raw 文件是兜底，缓存在 jsdelivr 上会慢半天）。想发 npm 的话，删掉 `package.json` 里的 `"private": true` 再 `npm publish`。
 
 ### 提交前自查
 
