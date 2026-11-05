@@ -134,8 +134,28 @@ window.__ModuleLoader__.load({
         .filter(Boolean)
     }
 
-    function looksLikeUrl(text) {
-      return /^https?:\/\/\S+$/i.test(text)
+    // 只认 URL 里合法的 ASCII 字符：分享文案里链接后面常直接跟着「复制本条信息…」，
+    // 用 \S+ 会把整句中文吃进地址。Host 侧还有一层同样的处理，两边保持一致。
+    const URL_PATTERN = /https?:\/\/[A-Za-z0-9\-._~:/?#\[\]@!$&'()*+,;=%]+/i
+    const BARE_URL_PATTERN = /(?:[A-Za-z0-9-]+\.)+[A-Za-z]{2,}\/[A-Za-z0-9\-._~:/?#\[\]@!$&'()*+;=%]*/
+
+    // 从一行文字里抠出真正的链接；短链原样返回，Host 会自动展开成完整地址
+    function pickUrl(text) {
+      const raw = String(text || '').replace(/[\u200b-\u200f\ufeff]/g, '')
+      const full = URL_PATTERN.exec(raw)
+      const bare = full ? null : BARE_URL_PATTERN.exec(raw)
+      const found = full ? full[0] : bare ? `https://${bare[0]}` : ''
+      if (!found) return ''
+      return found.replace(/[.,;:!?'"`]+$/, '').replace(/[)\]}>]+$/, '')
+    }
+
+    function urlsIn(text) {
+      const seen = new Set()
+      for (const line of lines(text)) {
+        const picked = pickUrl(line)
+        if (picked) seen.add(picked)
+      }
+      return [...seen]
     }
 
     /* ------------------------------------------------------------------ icon */
@@ -453,7 +473,7 @@ window.__ModuleLoader__.load({
         }
 
         async function doProbe() {
-          const first = lines(url).find(looksLikeUrl)
+          const first = urlsIn(url)[0]
           if (!first) { setNotice({ kind: 'error', text: '先贴一个链接' }); return }
           setBusy('probe')
           setNotice(null)
@@ -471,7 +491,7 @@ window.__ModuleLoader__.load({
         }
 
         async function doDownload() {
-          const list = lines(url).filter(looksLikeUrl)
+          const list = urlsIn(url)
           if (!list.length) { setNotice({ kind: 'error', text: '先贴一个链接' }); return }
           setBusy('download')
           setNotice(null)
@@ -632,7 +652,7 @@ window.__ModuleLoader__.load({
           try {
             const base = payload()
             const data = await api('/api/preview', {
-              url: preview.webpageUrl || lines(url).find(looksLikeUrl),
+              url: preview.webpageUrl || urlsIn(url)[0],
               cookies: base.cookies,
               cookiesFile: base.cookiesFile,
             })
@@ -726,7 +746,7 @@ window.__ModuleLoader__.load({
           h('button', { className: 'ytdlp-btn', onClick: doProbe, disabled: busy !== '' || !toolOk }, busy === 'probe' ? '解析中…' : '解析'),
         )
 
-        const hint = h('div', { className: 'ytdlp-hint' }, '多条链接，一行一个 · Enter 解析，⌘/Ctrl + Enter 直接下载')
+        const hint = h('div', { className: 'ytdlp-hint' }, '多条链接，一行一个 · 短链接会自动展开 · Enter 解析，⌘/Ctrl + Enter 直接下载')
 
         /* ------------------------------------------------------ 解析结果 + 下载 */
 
@@ -901,7 +921,7 @@ window.__ModuleLoader__.load({
               return
             }
             const text = e.dataTransfer ? e.dataTransfer.getData('text') : ''
-            const found = lines(text).filter(looksLikeUrl)
+            const found = urlsIn(text)
             if (found.length) {
               setUrl((prev) => (prev ? prev.replace(/\s*$/, '\n') : '') + found.join('\n'))
               setNotice({ kind: 'ok', text: `已加入 ${found.length} 个链接` })
@@ -1115,14 +1135,14 @@ window.__ModuleLoader__.load({
           ? h('div', { className: 'ytdlp-modal', onClick: () => setHelpOpen(false) },
             h('div', { className: 'ytdlp-dialog', onClick: (e) => e.stopPropagation() },
               h('h3', null, '视频下载器'),
-              h('p', null, `v${version} · 由 yt-dlp 驱动，支持上千个站点`),
+              h('p', null, `v${version}${env && env.build ? ` · 构建 ${env.build}` : ''} · 由 yt-dlp 驱动，支持上千个站点`),
               h('dl', null,
                 h('dt', null, '快捷键'),
                 h('dd', null,
                   h('span', { className: 'ytdlp-kbd' }, 'Enter'), ' 解析链接，',
                   h('span', { className: 'ytdlp-kbd' }, '⌘/Ctrl + Enter'), ' 直接开始下载'),
                 h('dt', null, '批量'),
-                h('dd', null, '一行一个链接，可以一次贴很多条'),
+                h('dd', null, '一行一个链接，可以一次贴很多条；短链接（xhslink.com、b23.tv 等）会自动展开成完整地址'),
                 h('dt', null, '需要登录'),
                 h('dd', null, '会员、年龄限制、反机器人验证的内容，在「登录与 Cookies」里配 cookies.txt'),
                 h('dt', null, '保存位置'),

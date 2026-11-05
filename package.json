@@ -1,6 +1,6 @@
 {
   "name": "dsh-video-downloader",
-  "version": "1.3.0",
+  "version": "1.4.1",
   "private": true,
   "type": "module",
   "description": "一个帮你高效下载各平台视频的 DeepSeek Harness 插件。贴一个链接，用本机 yt-dlp 下载视频 / 音频 / 字幕 / 封面 —— 支持 YouTube、哔哩哔哩、X、TikTok 等上千个站点。",

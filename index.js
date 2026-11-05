@@ -11,6 +11,7 @@
 //   /ytdlp/api/open      在资源管理器里打开保存目录 / 定位文件
 import { spawn, spawnSync } from 'node:child_process'
 import { chmodSync, copyFileSync, createReadStream, createWriteStream, existsSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, statSync, unlinkSync, writeFileSync } from 'node:fs'
+import { get as httpGet } from 'node:http'
 import { get as httpsGet } from 'node:https'
 import { basename, dirname, extname, join } from 'node:path'
 import { homedir } from 'node:os'
@@ -105,6 +106,9 @@ function pluginVersion() {
   }
 }
 export const VERSION = pluginVersion()
+// VERSION 是从 package.json 现读的，改完文件不重启也会变——它证明不了「内存里跑的是新代码」。
+// 这个构建号写死在代码里，改代码时顺手更新，用来确认插件有没有重新加载。
+export const BUILD = '2026-11-05.2'
 export const REPO_URL = 'https://github.com/Raymond-Hear/dsh-video-downloader'
 export const AUTHOR = '聆风 Raymond'
 // 署名只指到个人主页，不要指到某个项目
@@ -748,7 +752,7 @@ function friendlyError(raw) {
     return `这个画质要合并音视频（或转 mp3 / 转封面），需要 ffmpeg：${how}，装完点右上角「重新检测」。`
   }
   if (/is not a valid URL|Unsupported URL/i.test(text)) {
-    return '这个链接 yt-dlp 不认，检查一下是不是完整的视频地址。'
+    return '这个链接 yt-dlp 不认：可能短链没展开成功，或者它本身不是视频页。把原始分享内容再发一次试试。'
   }
   return text
 }
@@ -1000,9 +1004,271 @@ function pump() {
   }
 }
 
+/* ------------------------------------------------------------ 短链接展开 */
+
+// App 分享出来的是短链（xhslink.com/xxx、b23.tv/xxx、v.douyin.com/xxx），
+// 而 yt-dlp 的 extractor 只认完整页面地址（比如 www.xiaohongshu.com/explore/<id>），
+// 短链会掉进通用提取器然后失败。这里先自己跟一遍 3xx 跳转换成完整链接，
+// 用户贴短链、甚至整段分享文案都能直接用，不用再让他手动展开。
+
+// 常见短链域名。这不是白名单：不在表里的链接原样交给 yt-dlp，
+// 只有解析失败时才再补一次跳转尝试（有些新分享域名还没收录进来）。
+const SHORT_LINK_HOSTS = [
+  'xhslink.com', 'xhslink.cn', // 小红书（.com 是老域名，.cn 是现在 App 分享出来的）
+  'b23.tv', 'bili2233.cn', // 哔哩哔哩
+  'v.douyin.com', 'v.iesdouyin.com', 'v.kuaishou.com', // 抖音 / 快手
+  't.cn', 'url.cn', // 微博 / 腾讯
+  'vm.tiktok.com', 'vt.tiktok.com', // TikTok
+  'fb.watch', // Facebook
+  'pin.it', // Pinterest
+  'tinyurl.com', 'bit.ly', 't.co',
+]
+
+// 小红书的分享域名换过好几次（.com → .cn，社区还有 .icu 这类跳板），
+// 认 xhslink.* 整个家族，省得下次换 TLD 又不认。
+const XHSLINK_RE = /(?:^|\.)xhslink\.(?:com|cn|net|org|cc|icu|link|top|xyz)$/i
+
+// 这些是「内容站」，地址天然就短（youtu.be/xxx、vimeo.com/123），
+// 不值得为它们多打一次请求去试展开。
+const LONG_URL_HOSTS = [
+  'youtube.com', 'youtu.be', 'bilibili.com',
+  'x.com', 'twitter.com', 'tiktok.com', 'douyin.com', 'iesdouyin.com',
+  'xiaohongshu.com', 'instagram.com', 'facebook.com', 'weibo.com', 'weibo.cn',
+  'vimeo.com', 'twitch.tv', 'soundcloud.com', 'spotify.com',
+  'iqiyi.com', 'youku.com', 'acfun.cn', 'kuaishou.com', 'music.163.com', 'y.qq.com',
+]
+
+// 分享文案里链接后面常常直接粘着「复制本条信息，打开【小红书】App…」，
+// 用 \S+ 会把整句中文吃进 URL，所以只匹配 URL 里合法的 ASCII 字符。
+const URL_PATTERN = /https?:\/\/[A-Za-z0-9\-._~:/?#\[\]@!$&'()*+,;=%]+/i
+const BARE_URL_PATTERN = /(?:[A-Za-z0-9-]+\.)+[A-Za-z]{2,}\/[A-Za-z0-9\-._~:/?#\[\]@!$&'()*+;=%]*/
+
+const SHARE_UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36'
+
+// 从一段文字里抠出链接：整段分享文案、带句末标点的链接、markdown 链接都认
+function pickUrl(input) {
+  const text = String(input || '').replace(/[\u200b-\u200f\ufeff]/g, '')
+  const full = URL_PATTERN.exec(text)
+  const bare = full ? null : BARE_URL_PATTERN.exec(text)
+  const raw = full ? full[0] : bare ? `https://${bare[0]}` : ''
+  if (!raw) return ''
+  // 句末的标点、markdown 的右括号不是链接的一部分
+  return raw.replace(/[.,;:!?'"`]+$/, '').replace(/[)\]}>]+$/, '')
+}
+
+function isShortLink(url) {
+  try {
+    const host = new URL(url).hostname.toLowerCase().replace(/^www\./, '')
+    if (XHSLINK_RE.test(host)) return true
+    return SHORT_LINK_HOSTS.some((item) => host === item || host.endsWith(`.${item}`))
+  } catch {
+    return false
+  }
+}
+
+function isLongUrlHost(host) {
+  const name = host.toLowerCase().replace(/^www\./, '')
+  return LONG_URL_HOSTS.some((item) => name === item || name.endsWith(`.${item}`))
+}
+
+// 兜底：域名没收录，但地址短得像短链（路径 1–2 段、最后一段没有扩展名、整条不超过 64 字）。
+// 这种情况花一次请求试展开；如果它本来就是内容页（没有跨域跳转），会原样返回，不影响结果。
+function looksLikeShortUrl(url) {
+  try {
+    const target = new URL(url)
+    if (isLongUrlHost(target.hostname)) return false
+    if (url.length > 64) return false
+    const parts = target.pathname.split('/').filter(Boolean)
+    if (!parts.length || parts.length > 2) return false
+    return !parts[parts.length - 1].includes('.')
+  } catch {
+    return false
+  }
+}
+
+function absoluteUrl(href, base) {
+  try {
+    const next = new URL(String(href || '').trim(), base)
+    return /^https?:$/i.test(next.protocol) ? next.toString() : ''
+  } catch {
+    return ''
+  }
+}
+
+// 取一跳：只关心状态码和 Location，正文最多读 64KB（meta / canonical 都在 head 里）
+function requestHop(rawUrl, timeout) {
+  return new Promise((resolve, reject) => {
+    let target
+    try { target = new URL(rawUrl) } catch { return reject(Object.assign(new Error('链接格式不对'), { status: 400 })) }
+    const lib = target.protocol === 'https:' ? httpsGet : httpGet
+    const req = lib(target, {
+      headers: {
+        'user-agent': SHARE_UA,
+        accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+        'accept-language': 'zh-CN,zh;q=0.9,en;q=0.8',
+      },
+    }, (res) => {
+      const status = res.statusCode || 0
+      const location = String(res.headers.location || '')
+      const type = String(res.headers['content-type'] || '')
+      // 有跳转、或者干脆不是网页：不读正文，省流量
+      if (location || status !== 200 || !/html|xml/i.test(type)) {
+        res.resume()
+        return resolve({ status, location, body: '' })
+      }
+      let body = ''
+      let done = false
+      const finish = () => {
+        if (done) return
+        done = true
+        resolve({ status, location, body })
+      }
+      res.setEncoding('utf8')
+      res.on('data', (chunk) => {
+        body += chunk
+        // meta / canonical 都在 head 里，读够 64KB 就断开，别把整页拉下来
+        if (body.length >= 64 * 1024) {
+          body = body.slice(0, 64 * 1024)
+          finish()
+          res.destroy()
+        }
+      })
+      res.on('end', finish)
+      res.on('error', finish)
+    })
+    req.setTimeout(timeout, () => req.destroy(new Error('短链接展开超时')))
+    req.on('error', reject)
+  })
+}
+
+// 有些分享页不返回 3xx，而是 200 + JS / meta 跳转，从 HTML 里再找一次目标地址。
+// allowSameHost 只在短链站上打开：普通视频页的内联 JS 里也常有 location.href，
+// 不能把它当成跳转。
+function redirectFromHtml(html, base, { allowSameHost = false } = {}) {
+  if (!html) return ''
+  const crossHost = (next) => Boolean(next) && new URL(next).host !== new URL(base).host
+  const usable = (next) => Boolean(next) && (allowSameHost || crossHost(next))
+  // meta refresh / JS 跳转
+  const redirects = [
+    /<meta[^>]+http-equiv=["']?refresh["']?[^>]*content=["'][^"']*?url=([^"'>\s]+)/i,
+    /location\.(?:replace|assign)\s*\(\s*["']([^"']+)["']/i,
+    /location(?:\.href)?\s*=\s*["']([^"']+)["']/i,
+  ]
+  for (const pattern of redirects) {
+    const matched = pattern.exec(html)
+    const next = matched ? absoluteUrl(matched[1], base) : ''
+    if (usable(next)) return next
+  }
+  // canonical / og:url 多半是「这页本身」，只有指向别的域名时才当成跳转
+  const selfRefs = [
+    /<link[^>]+rel=["']canonical["'][^>]*href=["']([^"']+)["']/i,
+    /<meta[^>]+property=["']og:url["'][^>]*content=["']([^"']+)["']/i,
+  ]
+  for (const pattern of selfRefs) {
+    const matched = pattern.exec(html)
+    const next = matched ? absoluteUrl(matched[1], base) : ''
+    if (crossHost(next)) return next
+  }
+  return ''
+}
+
+const MAX_SHORT_HOPS = 6
+
+// 跟着跳转走到最终页面。失败时尽量把已经走到的地址交回去，
+// 实在不行由调用方决定是退回原链接还是报错。
+// 总耗时卡在 total 以内：这个函数在 download 工具的 20 秒超时里跑，不能无限等。
+async function followShortLink(url, { hops = MAX_SHORT_HOPS, timeout = 6000, total = 9000 } = {}) {
+  const deadline = Date.now() + total
+  const originHost = new URL(url).host
+  let current = url
+  const seen = new Set()
+  for (let i = 0; i < hops; i += 1) {
+    if (seen.has(current)) break
+    seen.add(current)
+    const left = deadline - Date.now()
+    if (left <= 0) throw new Error('短链展开超时')
+    let hop
+    try {
+      hop = await requestHop(current, Math.min(timeout, left))
+    } catch (err) {
+      // 个别站点的 https 在 Node 里过不去，第一跳换成 http 再试一次
+      if (i === 0 && /^https:\/\//i.test(current)) {
+        current = current.replace(/^https:\/\//i, 'http://')
+        continue
+      }
+      throw err
+    }
+    const next = hop.location ? absoluteUrl(hop.location, current) : redirectFromHtml(hop.body, current, { allowSameHost: isShortLink(current) })
+    if (!next || next === current) return current
+    // 跳出了短链站（去的不是另一个短链域名）：这通常就是内容页本身。
+    // 别再顺着它自己的登录 / 风控跳转往下走——那些跳转是给浏览器看的，
+    // 交给 yt-dlp 反而更稳（它会带 cookies、按自己那套请求）。
+    if (new URL(next).host !== originHost && !isShortLink(next)) return next
+    current = next
+  }
+  return current
+}
+
+// 短链过期 / 笔记被删时，小红书会把它 307 回站点首页或 404。
+// 这种别当视频页去下，直接说清楚，省得用户等一个注定失败的下载。
+// 只在路径确实是首页 / 404 时判定：跳到登录页、用户页还有救（带 cookies 可能能开），
+// 交给 yt-dlp 去试。
+function shortLinkDeadEnd(resolved) {
+  try {
+    const target = new URL(resolved)
+    if (/(^|\.)xiaohongshu\.com$/i.test(target.hostname)) {
+      return /^\/(?:404|explore)?\/?$/i.test(target.pathname)
+    }
+    return (target.pathname === '/' || target.pathname === '') && !target.search
+  } catch {
+    return false
+  }
+}
+
+// 同一个短链在「解析 → 下载」之间会被展开两次，缓存十分钟省一轮跳转
+const resolvedCache = new Map()
+const RESOLVE_TTL = 10 * 60 * 1000
+
+function shortLinkDeadError() {
+  return Object.assign(new Error('这个短链接没能打开具体内容页（原内容可能被删、设了权限或链接已过期），重新分享一次再试'), { status: 400 })
+}
+
+// 统一入口：把用户贴进来的东西（短链 / 分享文案 / 普通链接）变成一个能交给 yt-dlp 的链接。
+// 展开失败不算错：保持原样交出去，让 yt-dlp 自己再试一次。
+async function resolveInputUrl(input) {
+  const original = pickUrl(input)
+  if (!original) {
+    throw Object.assign(new Error('没找到链接：贴 http(s) 开头的视频地址，或者整段分享文案也行'), { status: 400 })
+  }
+  let url = original
+  let expanded = false
+  if (isShortLink(original) || looksLikeShortUrl(original)) {
+    const cached = resolvedCache.get(original)
+    if (cached && Date.now() - cached.at < RESOLVE_TTL) {
+      url = cached.url
+      expanded = url !== original
+    } else {
+      try {
+        // 明确的短链域名给足时间；「只是长得像短链」的猜测试探要快，别让正常链接干等
+        const full = await followShortLink(original, isShortLink(original) ? {} : { total: 4000, timeout: 3000 })
+        if (full && full !== original) {
+          url = full
+          expanded = true
+        }
+      } catch {}
+      resolvedCache.set(original, { url, at: Date.now() })
+      if (resolvedCache.size > 100) resolvedCache.delete(resolvedCache.keys().next().value)
+    }
+  }
+  if (expanded && shortLinkDeadEnd(url)) {
+    throw shortLinkDeadError()
+  }
+  return { url, original, expanded }
+}
+
 /* -------------------------------------------------------------------- probe */
 
-function probe(rawUrl, cookieOpts = {}) {
+function probePage(rawUrl, cookieOpts = {}) {
   const tool = requireTool()
   return new Promise((resolve, reject) => {
     const args = [...tool.prefix, '-J', '--no-playlist', '--skip-download', '--no-warnings', '--color', 'never']
@@ -1061,10 +1327,31 @@ function probe(rawUrl, cookieOpts = {}) {
   })
 }
 
+// 短链先展开再解析；也不在短链名单里但 yt-dlp 认不出的地址，
+// 失败后再跟一次跳转重试（有些分享域名没收录进 SHORT_LINK_HOSTS）。
+async function probe(rawUrl, cookieOpts = {}) {
+  const resolved = await resolveInputUrl(rawUrl)
+  try {
+    return await probePage(resolved.url, cookieOpts)
+  } catch (err) {
+    if (resolved.expanded || !/Unsupported URL|is not a valid URL/i.test(String(err && err.message))) throw err
+    let full = ''
+    try { full = await followShortLink(resolved.original, { hops: 4 }) } catch {}
+    if (!full || full === resolved.original) throw err
+    if (shortLinkDeadEnd(full)) throw shortLinkDeadError()
+    return await probePage(full, cookieOpts)
+  }
+}
+
 /* ---------------------------------------------------------------- preview */
 
 // 取一个能直接播放的临时直链（720p 以内的单文件流），给页面里的 <video> 预试用
-function previewSource(rawUrl, opts = {}) {
+async function previewSource(rawUrl, opts = {}) {
+  const resolved = await resolveInputUrl(rawUrl)
+  return previewStream(resolved.url, opts)
+}
+
+function previewStream(rawUrl, opts = {}) {
   const tool = requireTool()
   return new Promise((resolve, reject) => {
     const args = [...tool.prefix, '-g', '--no-playlist', '--no-warnings', '--color', 'never', '-f', 'b[height<=720]/b']
@@ -1158,7 +1445,7 @@ const PROBE_PARAMS = {
   additionalProperties: false,
   required: ['url'],
   properties: {
-    url: { type: 'string', description: '完整的视频页面链接（YouTube / 哔哩哔哩 / X / TikTok 等）' },
+    url: { type: 'string', description: '视频页面链接；短链接（xhslink.com、b23.tv、v.douyin.com 这类）或整段分享文案也可以，会自动展开成完整地址' },
   },
 }
 
@@ -1167,7 +1454,7 @@ const DOWNLOAD_PARAMS = {
   additionalProperties: false,
   required: ['url'],
   properties: {
-    url: { type: 'string', description: '完整的视频页面链接' },
+    url: { type: 'string', description: '视频页面链接；短链接或整段分享文案也可以，会自动展开' },
     mode: { type: 'string', enum: DOWNLOAD_MODES, description: '下载什么：video 视频、audio 仅音频（mp3）、subs 仅字幕（srt）、thumb 仅封面（jpg）。默认 video' },
     quality: { type: 'string', enum: QUALITY_CHOICES, description: '视频清晰度上限，仅 video 模式有效。默认 1080' },
     subtitles: { type: 'boolean', description: 'video 模式下把字幕内嵌进视频' },
@@ -1222,7 +1509,7 @@ const renderJob = (_args, v) => TEXT_OUT(
 const TOOLS = [
   {
     name: 'video_probe',
-    description: '解析一个视频链接，返回标题、作者、时长、可选清晰度、字幕语言数量和是否直播。用户想先确认链接能不能下、或要挑清晰度时先用它。',
+    description: '解析一个视频链接，返回标题、作者、时长、可选清晰度、字幕语言数量和是否直播。用户想先确认链接能不能下、或要挑清晰度时先用它。短链接（xhslink.com、b23.tv 等）和整段分享文案直接传，会自动展开成完整地址，不用让用户先去转长链接。',
     parameters: PROBE_PARAMS,
     timeoutMs: 120000,
     output: {
@@ -1262,13 +1549,13 @@ const TOOLS = [
   },
   {
     name: 'video_download',
-    description: '把一个视频链接加入本机下载队列（用本机的 yt-dlp 真正下载）。立刻返回任务编号，不会等下载完成；要查进度或拿文件路径，之后用 video_jobs 查这个编号。下载参数没说的部分沿用用户在面板里的设置。',
+    description: '把一个视频链接加入本机下载队列（用本机的 yt-dlp 真正下载）。立刻返回任务编号，不会等下载完成；要查进度或拿文件路径，之后用 video_jobs 查这个编号。下载参数没说的部分沿用用户在面板里的设置。短链接和整段分享文案直接传，会自动展开，不用让用户先转成长链接。',
     parameters: DOWNLOAD_PARAMS,
     timeoutMs: 20000,
     output: { schema: JOB_SHAPE, render: renderJob },
     async execute(args) {
       checkArgs(args, DOWNLOAD_PARAMS)
-      const job = startDownload({
+      const job = await startDownload({
         url: String(args.url).trim(),
         mode: args.mode || 'video',
         quality: args.quality || state.defaults.quality || '1080',
@@ -1365,6 +1652,7 @@ function envPayload() {
   }
   return {
     version: pluginVersion(),
+    build: BUILD,
     repo: REPO_URL,
     author: AUTHOR,
     authorUrl: AUTHOR_URL,
@@ -1395,11 +1683,10 @@ function cleanPlaylistItems(value) {
   return raw
 }
 
-function startDownload(input) {
-  const url = String(input.url || '').trim()
-  if (!/^https?:\/\/\S+$/i.test(url)) {
-    throw Object.assign(new Error('链接看起来不对，需要 http(s) 开头'), { status: 400 })
-  }
+async function startDownload(input) {
+  // 短链 / 分享文案在这里统一展开成完整链接，进队列的 job.url 一定是能直接交给 yt-dlp 的地址
+  const resolved = await resolveInputUrl(input.url)
+  const url = resolved.url
   const cookiesFile = String(
     input.cookiesFile || (input.cookies ? '' : state.defaults.cookiesFile) || '',
   ).trim()
@@ -1446,7 +1733,7 @@ function startDownload(input) {
   return publicJob(job)
 }
 
-function retryJob(id) {
+async function retryJob(id) {
   const source = jobs.get(id) || state.history.find((j) => j.id === id)
   if (!source) throw Object.assign(new Error('找不到这个任务'), { status: 404 })
   return startDownload({
@@ -1604,10 +1891,10 @@ export function apply(ctx) {
           }
           if (rest === '/api/env' && req.method === 'GET') return sendJson(res, 200, envPayload())
           if (rest === '/api/jobs' && req.method === 'GET') return sendJson(res, 200, { jobs: jobList(), queue: { paused, running: running.size, queued: queue.length, concurrency: concurrency() } })
-          if (rest === '/api/download' && req.method === 'POST') return sendJson(res, 200, { job: startDownload(await readJson(req)) })
+          if (rest === '/api/download' && req.method === 'POST') return sendJson(res, 200, { job: await startDownload(await readJson(req)) })
           if (rest === '/api/retry' && req.method === 'POST') {
             const body = await readJson(req)
-            return sendJson(res, 200, { job: retryJob(String(body.id || '')) })
+            return sendJson(res, 200, { job: await retryJob(String(body.id || '')) })
           }
           if (rest === '/api/pause' && req.method === 'POST') {
             const body = await readJson(req)
@@ -1625,9 +1912,8 @@ export function apply(ctx) {
           }
           if (rest === '/api/probe' && req.method === 'POST') {
             const body = await readJson(req)
-            const url2 = String(body.url || '').trim()
-            if (!/^https?:\/\/\S+$/i.test(url2)) return sendJson(res, 400, { error: '链接看起来不对，需要 http(s) 开头' })
-            return sendJson(res, 200, { video: await probe(url2, { cookies: String(body.cookies || ''), cookiesFile: String(body.cookiesFile || '') }) })
+            // 短链和整段分享文案都由 probe 自己展开、抠链接，这里不再拦
+            return sendJson(res, 200, { video: await probe(String(body.url || '').trim(), { cookies: String(body.cookies || ''), cookiesFile: String(body.cookiesFile || '') }) })
           }
           if (rest === '/api/cookies/check' && req.method === 'POST') {
             const body = await readJson(req)
@@ -1635,9 +1921,7 @@ export function apply(ctx) {
           }
           if (rest === '/api/preview' && req.method === 'POST') {
             const body = await readJson(req)
-            const url3 = String(body.url || '').trim()
-            if (!/^https?:\/\/\S+$/i.test(url3)) return sendJson(res, 400, { error: '链接看起来不对' })
-            return sendJson(res, 200, await previewSource(url3, { cookies: String(body.cookies || ''), cookiesFile: String(body.cookiesFile || '') }))
+            return sendJson(res, 200, await previewSource(String(body.url || '').trim(), { cookies: String(body.cookies || ''), cookiesFile: String(body.cookiesFile || '') }))
           }
           if (rest === '/api/cookies/upload' && req.method === 'POST') {
             const body = await readJson(req, 4 * 1024 * 1024)
@@ -1710,5 +1994,5 @@ export function apply(ctx) {
 
 // 只给测试用：DSH_YTDLP_TEST=1 时把这些纯函数导出，正常运行时是 undefined。
 export const __test = process.env.DSH_YTDLP_TEST
-  ? { releaseAsset, releaseUrls, pythonCandidates, bundledPythons, extraPathDirs, firstLine, manualHint, downloadTo, installTool, installFfmpeg, detectFfmpeg, detectTool, checkUpdate, buildArgs, applyUpdate, compareVersion, titleFromFile, PIP_INDEXES, MANAGED_BIN, MANAGED_PYLIB, BIN_DIR }
+  ? { releaseAsset, releaseUrls, pythonCandidates, bundledPythons, extraPathDirs, firstLine, manualHint, downloadTo, installTool, installFfmpeg, detectFfmpeg, detectTool, checkUpdate, buildArgs, applyUpdate, compareVersion, titleFromFile, PIP_INDEXES, MANAGED_BIN, MANAGED_PYLIB, BIN_DIR, pickUrl, isShortLink, absoluteUrl, redirectFromHtml, followShortLink, resolveInputUrl, shortLinkDeadEnd }
   : undefined
